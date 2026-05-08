@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Domain Discovery Report &mdash; contoso.com (EXAMPLE)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1100px; margin: 2em auto; padding: 0 1em; color: #222; }
+  h1 { border-bottom: 2px solid #0078d4; padding-bottom: 0.3em; }
+  h2 { color: #0078d4; margin-top: 2em; }
+  .status-banner { padding: 1.5em; border-radius: 8px; color: white; margin: 1.5em 0; }
+  .status-banner h2 { color: white; margin: 0 0 0.5em 0; border: none; }
+  .meta { color: #666; font-size: 0.9em; }
+  table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+  th { background-color: #0078d4; color: white; text-align: left; padding: 0.6em; font-weight: 600; }
+  td { padding: 0.6em; border-bottom: 1px solid #eee; vertical-align: top; }
+  .summary-cards { display: flex; gap: 1em; margin: 1em 0; flex-wrap: wrap; }
+  .card { flex: 1; min-width: 200px; padding: 1em; border-radius: 6px; border: 1px solid #ddd; }
+  .card .num { font-size: 2em; font-weight: bold; }
+  .card.blocker { border-color: #c62828; }
+  .card.blocker .num { color: #c62828; }
+  .card.warn { border-color: #ef6c00; }
+  .card.warn .num { color: #ef6c00; }
+  .card.info { border-color: #1976d2; }
+  .card.info .num { color: #1976d2; }
+  .legend { font-size: 0.85em; color: #666; }
+  .next-steps { background: #f5f5f5; padding: 1em; border-left: 4px solid #0078d4; margin: 1em 0; }
+  .skipped-banner { background: #fff8e1; padding: 1em 1.5em; border-left: 4px solid #ef6c00; margin: 1.5em 0; border-radius: 4px; }
+  .skipped-banner h3 { margin: 0 0 0.5em 0; color: #ef6c00; }
+  .skipped-banner ul { margin: 0.5em 0 0 0; }
+  .example-banner { background: #e3f2fd; border: 2px dashed #1976d2; padding: 1em 1.5em; border-radius: 6px; margin: 1em 0; color: #0d47a1; }
+  .example-banner strong { color: #0d47a1; }
+  code { background: #f0f0f0; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<div class="example-banner">
+  <strong>&#128221; EXAMPLE REPORT</strong> &mdash; This is a sample output showing the toolkit's report format using fabricated data for the placeholder domain <code>contoso.com</code>. No real tenant was scanned to produce this report. For actual results, run the toolkit against your own tenant.
+</div>
+
+<h1>Verified Domain Discovery Report</h1>
+<p class="meta">
+  <strong>Domain:</strong> contoso.com<br/>
+  <strong>Generated:</strong> 2026-01-15 14:32:08<br/>
+  <strong>Output directory:</strong> <code>C:\DomainDiscovery\output\2026-01-15-1428</code>
+</p>
+
+<div class="status-banner" style="background-color: #c62828;">
+  <h2>NOT READY</h2>
+  <p>487 references found that will block domain removal. Address all hard blockers before attempting removal.</p>
+</div>
+
+
+
+<div class="summary-cards">
+  <div class="card blocker">
+    <div>Hard blocker references</div>
+    <div class="num">487</div>
+    <div class="legend">Must be cleared before domain removal succeeds</div>
+  </div>
+  <div class="card warn">
+    <div>Soft blocker references</div>
+    <div class="num">42</div>
+    <div class="legend">Recommended to fix to avoid post-cutover issues</div>
+  </div>
+  <div class="card info">
+    <div>Errors / warnings logged</div>
+    <div class="num">0</div>
+    <div class="legend">See <code>errors.log</code> in the output directory for details</div>
+  </div>
+</div>
+
+<h2>Findings by module</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Module</th>
+      <th>Category</th>
+      <th style="text-align: right;">Findings</th>
+      <th>Output file</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+        <tr style="background-color: #ffebee;">
+            <td><strong>Users</strong></td>
+            <td>Hard blocker (must fix before removal)</td>
+            <td style="text-align: right; font-family: monospace;">312</td>
+            <td>01-users-on-domain.csv</td>
+            <td>Synced=287; Cloud-only=18; Guests=7</td>
+        </tr>
+        <tr style="background-color: #ffebee;">
+            <td><strong>Groups</strong></td>
+            <td>Hard blocker (must fix before removal)</td>
+            <td style="text-align: right; font-family: monospace;">48</td>
+            <td>02-groups-on-domain.csv</td>
+            <td>M365 Group=29; Distribution List=14; Mail-Enabled Security=5</td>
+        </tr>
+        <tr style="background-color: #ffebee;">
+            <td><strong>AppRegistrations</strong></td>
+            <td>Hard blocker (must fix before removal)</td>
+            <td style="text-align: right; font-family: monospace;">4</td>
+            <td>03-app-registrations-on-domain.csv</td>
+            <td>WithIdentifierUris=2 (these are HARD blockers)</td>
+        </tr>
+        <tr style="background-color: #fff8e1;">
+            <td><strong>ServicePrincipals</strong></td>
+            <td>Soft blocker (recommend fixing)</td>
+            <td style="text-align: right; font-family: monospace;">17</td>
+            <td>04-service-principals-on-domain.csv</td>
+            <td>Application=15; ManagedIdentity=2</td>
+        </tr>
+        <tr style="background-color: #ffebee;">
+            <td><strong>ExchangeOnline</strong></td>
+            <td>Hard blocker (must fix before removal)</td>
+            <td style="text-align: right; font-family: monospace;">122</td>
+            <td>06-exchange-*.csv (multiple files)</td>
+            <td>See 06-exchange-*.csv files in the output directory</td>
+        </tr>
+        <tr style="background-color: #fff8e1;">
+            <td><strong>ConditionalAccess</strong></td>
+            <td>Soft blocker (recommend fixing)</td>
+            <td style="text-align: right; font-family: monospace;">3</td>
+            <td>07-conditional-access-on-domain.csv</td>
+            <td>Review snippets - domain may appear in named locations, user filters, or external IDs</td>
+        </tr>
+        <tr style="background-color: #ffebee;">
+            <td><strong>Federation</strong></td>
+            <td>Hard blocker (must fix before removal)</td>
+            <td style="text-align: right; font-family: monospace;">1</td>
+            <td>08-federation-config.csv</td>
+            <td>FEDERATED - must be converted to Managed before domain removal</td>
+        </tr>
+        <tr style="background-color: #e3f2fd;">
+            <td><strong>SignInActivity</strong></td>
+            <td>Informational</td>
+            <td style="text-align: right; font-family: monospace;">8463</td>
+            <td>09-signins-by-user.csv</td>
+            <td>Users with activity=234; Apps with activity=47; Total events=8463</td>
+        </tr>
+        <tr style="background-color: #e3f2fd;">
+            <td><strong>SoftDeleted</strong></td>
+            <td>Informational</td>
+            <td style="text-align: right; font-family: monospace;">5</td>
+            <td>10-soft-deleted-on-domain.csv</td>
+            <td>5 soft-deleted users still hold UPN/email references for up to 30 days</td>
+        </tr>
+        <tr style="background-color: #fff8e1;">
+            <td><strong>AzureResources</strong></td>
+            <td>Soft blocker (recommend fixing)</td>
+            <td style="text-align: right; font-family: monospace;">22</td>
+            <td>11-azure-*.csv (multiple files)</td>
+            <td>CustomDomains=4; Names=11; Tags=3; Config=4; ResourceGraph=38</td>
+        </tr>
+  </tbody>
+</table>
+
+<details style="margin-top: 1.5em;">
+  <summary style="cursor: pointer; color: #0078d4; font-weight: 600; padding: 0.5em 0;">
+    Show categories with no findings
+  </summary>
+  <table>
+    <thead>
+      <tr>
+        <th>Module</th>
+        <th>Category</th>
+        <th style="text-align: right;">Findings</th>
+        <th>Output file</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+        <tr style="background-color: #e8f5e9;">
+            <td><strong>ManagedIdentities</strong></td>
+            <td>Hard blocker (must fix before removal)</td>
+            <td style="text-align: right; font-family: monospace;">0</td>
+            <td>05-managed-identities-on-domain.csv</td>
+            <td>DisplayNameMatches=0; FedCredMatches=0</td>
+        </tr>
+    </tbody>
+  </table>
+</details>
+
+<h2>Recommended next steps</h2>
+
+<div class="next-steps">
+  <h3>1. Address hard blockers</h3>
+  <p>Hard blockers are objects that will prevent domain removal until cleared: users, groups, app registration identifier URIs, managed identities, mailboxes, distribution lists, mail-enabled security groups, and accepted domains. For each finding, decide:</p>
+  <ul>
+    <li><strong>Migrate</strong> &mdash; preserve in destination tenant</li>
+    <li><strong>Recreate</strong> &mdash; rebuild in destination, retire here</li>
+    <li><strong>Retire</strong> &mdash; no longer needed</li>
+  </ul>
+  <p>Build a remediation plan with an owner and due date for each item.</p>
+</div>
+
+<div class="next-steps">
+  <h3>2. Convert UPNs to .onmicrosoft.com</h3>
+  <p>Per Microsoft's UPN change guidance, change all on-prem AD <code>userPrincipalName</code> values from <code>@contoso.com</code> to <code>@&lt;tenant&gt;.onmicrosoft.com</code>, then trigger an Entra Connect delta sync. Pilot a small group first &mdash; this is a user-facing change. Sign-in with the old UPN stops working as soon as sync propagates, and Outlook/Teams clients will require reauthentication.</p>
+</div>
+
+<div class="next-steps">
+  <h3>3. Clear Exchange-mastered objects</h3>
+  <p>Mail-enabled security groups, distribution lists, and lingering proxyAddresses must be cleaned up in the Exchange Admin Center &mdash; these don't surface in Entra Connect or Graph queries directly.</p>
+</div>
+
+<div class="next-steps">
+  <h3>4. Address soft blockers before cutover</h3>
+  <p>Soft blockers (service principal reply URLs, Conditional Access policy references, Azure resource custom domain bindings) won't prevent domain removal but will cause downstream breakage if left alone. Update reply URLs and notification emails on service principals, edit CA policies that reference the domain, and reconfigure Azure resource custom domain bindings before cutover.</p>
+</div>
+
+<div class="next-steps">
+  <h3>5. Address app-level UPN dependencies</h3>
+  <p>Review the sign-in activity output (<code>09-signins-by-app.csv</code>) &mdash; the top apps by sign-in volume are your highest-priority validation targets post-UPN-change. Apps with hardcoded <code>@contoso.com</code> identifiers will need configuration updates.</p>
+</div>
+
+<div class="next-steps">
+  <h3>6. Verify federation status</h3>
+  <p>If <code>08-federation-config.csv</code> shows <code>AuthenticationType = Federated</code>, you must convert the domain to Managed authentication (or remove the federation configuration) before the domain can be released. Most tenants are already Managed; this step is only relevant for federated configurations.</p>
+</div>
+
+<h2>Reference documentation</h2>
+<ul>
+  <li><a href="https://learn.microsoft.com/en-us/entra/identity/users/domains-manage">Add and verify custom domain names (Microsoft Learn)</a></li>
+  <li><a href="https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/howto-troubleshoot-upn-changes">Plan and troubleshoot UPN changes</a></li>
+  <li><a href="https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/plan-connect-topologies">Entra Connect: Supported topologies</a></li>
+  <li><a href="https://learn.microsoft.com/en-us/microsoft-365/enterprise/microsoft-365-tenant-to-tenant-migrations">M365 tenant-to-tenant migrations (architecture)</a></li>
+  <li><a href="https://learn.microsoft.com/en-us/microsoft-365/enterprise/cross-tenant-mailbox-migration">Cross-tenant mailbox migration</a></li>
+</ul>
+
+<p class="meta" style="margin-top: 3em; border-top: 1px solid #eee; padding-top: 1em;">
+  Generated by Verified Domain Discovery Toolkit. This is a read-only inventory &mdash; no changes were made to the tenant.<br/>
+  <em>This is an independent community tool, not affiliated with or supported by Microsoft Corporation. Provided as-is, without warranty. Validate findings before taking action.</em>
+</p>
+
+</body>
+</html>
