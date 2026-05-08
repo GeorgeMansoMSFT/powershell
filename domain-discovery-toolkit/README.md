@@ -1,5 +1,13 @@
 # Verified Domain Reference Discovery Toolkit
 
+> **Disclaimer**
+>
+> This is an independent, community-built tool. It is **not** affiliated with, endorsed by, or supported by Microsoft Corporation. While the author may be employed by Microsoft, this toolkit is a personal project and is not an official Microsoft product. It is not covered by any Microsoft support agreement, SLA, or warranty.
+>
+> The toolkit is provided **as-is**, without warranty of any kind, express or implied. Use at your own risk. Always validate findings against your own environment before taking action based on the output.
+>
+> For official Microsoft guidance on tenant migrations and domain management, refer to [Microsoft Learn](https://learn.microsoft.com/en-us/microsoft-365/enterprise/microsoft-365-tenant-to-tenant-migrations) or engage Microsoft Consulting Services / a Microsoft partner.
+
 Pre-flight discovery for releasing a verified custom domain from an Entra ID tenant. Identifies every object, configuration, and Azure resource that references the domain, so you can clear references before attempting domain removal.
 
 ## What problem this solves
