@@ -10,9 +10,13 @@
 
 Pre-flight discovery for releasing a verified custom domain from an Entra ID tenant. Identifies every object, configuration, and Azure resource that references the domain, so you can clear references before attempting domain removal.
 
+## Example output
+
+Preview a [rendered example report](https://georgemansomsft.github.io/powershell/domain-discovery-toolkit/Summary-Report-EXAMPLE.html) to see the format before running the toolkit. (Uses fabricated data - no real tenant was scanned.)
+
 ## What problem this solves
 
-Microsoft's domain removal logic blocks deletion if any object still references the domain — but the portal only tells you the *category* of blocker, not the specific offending objects. ForceDelete exists as an emergency option but auto-rewrites references to `.onmicrosoft.com` with no rollback, no pilot, and no user comms window. Neither path is suitable for a planned tenant migration.
+Microsoft's domain removal logic blocks deletion if any object still references the domain - but the portal only tells you the *category* of blocker, not the specific offending objects. ForceDelete exists as an emergency option but auto-rewrites references to `.onmicrosoft.com` with no rollback, no pilot, and no user comms window. Neither path is suitable for a planned tenant migration.
 
 This toolkit gives you a complete inventory of what references the domain, so you can plan a controlled cleanup before the actual removal.
 
@@ -21,15 +25,15 @@ This toolkit gives you a complete inventory of what references the domain, so yo
 The toolkit scans 11 categories across three Microsoft cloud surfaces:
 
 **Microsoft Graph (identity)**
-- Users — UPN, mail, proxyAddresses, otherMails (including guests with mangled UPNs)
-- Groups — M365 groups, distribution lists, mail-enabled security groups
-- App registrations — redirect URIs, identifier URIs, logout URLs, home page URLs
-- Service principals — reply URLs, login/logout URLs, notification emails
-- Managed identities — display names (federated credentials covered by Azure module)
-- Conditional Access policies — any reference to the domain in policy JSON
-- Federation configuration — federated vs. managed authentication
-- Sign-in activity — last 30 days of UPNs and apps actively using the domain
-- Soft-deleted users — recycle bin objects that block UPN reuse for up to 30 days
+- Users - UPN, mail, proxyAddresses, otherMails (including guests with mangled UPNs)
+- Groups - M365 groups, distribution lists, mail-enabled security groups
+- App registrations - redirect URIs, identifier URIs, logout URLs, home page URLs
+- Service principals - reply URLs, login/logout URLs, notification emails
+- Managed identities - display names (federated credentials covered by Azure module)
+- Conditional Access policies - any reference to the domain in policy JSON
+- Federation configuration - federated vs. managed authentication
+- Sign-in activity - last 30 days of UPNs and apps actively using the domain
+- Soft-deleted users - recycle bin objects that block UPN reuse for up to 30 days
 
 **Exchange Online**
 - Accepted domains, mailboxes, distribution groups, mail contacts, mail users
@@ -44,7 +48,7 @@ The toolkit scans 11 categories across three Microsoft cloud surfaces:
 
 ## Architecture notes
 
-**Two PowerShell processes.** The toolkit runs Microsoft Graph and Az PowerShell in separate processes. This is required because the two SDKs depend on conflicting versions of the `Azure.Identity` assembly and cannot coexist in a single PowerShell session. The orchestrator handles this transparently — the Azure resource scan launches a child PowerShell at the end of the run.
+**Two PowerShell processes.** The toolkit runs Microsoft Graph and Az PowerShell in separate processes. This is required because the two SDKs depend on conflicting versions of the `Azure.Identity` assembly and cannot coexist in a single PowerShell session. The orchestrator handles this transparently - the Azure resource scan launches a child PowerShell at the end of the run.
 
 **Read-only.** The toolkit makes no modifications. It only enumerates and reports.
 
@@ -64,14 +68,14 @@ If you have multiple versions of Microsoft.Graph installed, the toolkit auto-det
 
 You will be prompted to authenticate up to three times in a fresh session:
 
-1. **Microsoft Graph** — at orchestrator start
-2. **Exchange Online** — when the EXO scan begins (skip with `n` to bypass)
-3. **Azure** — in the child process when the Az scan begins (skip with `n` to bypass)
+1. **Microsoft Graph** - at orchestrator start
+2. **Exchange Online** - when the EXO scan begins (skip with `n` to bypass)
+3. **Azure** - in the child process when the Az scan begins (skip with `n` to bypass)
 
 Windows uses the Web Account Manager (WAM) broker for these prompts. WAM is enabled by default in current Microsoft.Graph versions and cannot be disabled. The WAM dialog has two quirks worth knowing:
 
 - It defaults to showing personal Microsoft accounts. Click **"Work or school account"** if you don't see the right account listed.
-- After signing in, it asks **"Sign in to all apps and websites on this device?"** — click **"No, this app only"** unless you specifically want to register the admin account to the device.
+- After signing in, it asks **"Sign in to all apps and websites on this device?"** - click **"No, this app only"** unless you specifically want to register the admin account to the device.
 
 After the first sign-in, WAM caches the broker token at the OS level. Subsequent runs in the same Windows session typically auth silently with no prompts.
 
@@ -140,9 +144,9 @@ Each run creates a timestamped directory containing:
 
 The HTML report categorizes findings:
 
-- **Hard blockers** — Will prevent domain removal until cleared. Includes users, groups, app reg identifier URIs, mailboxes, accepted domains, federated configuration. Must be remediated before standard domain removal succeeds.
-- **Soft blockers** — Will not prevent domain removal but will cause downstream breakage. Includes service principal reply URLs, notification emails, Azure resource custom domain bindings, Conditional Access policy references.
-- **Informational** — Sign-in activity (helps prioritize app validation), soft-deleted users (UPN reuse blockers for up to 30 days).
+- **Hard blockers** - Will prevent domain removal until cleared. Includes users, groups, app reg identifier URIs, mailboxes, accepted domains, federated configuration. Must be remediated before standard domain removal succeeds.
+- **Soft blockers** - Will not prevent domain removal but will cause downstream breakage. Includes service principal reply URLs, notification emails, Azure resource custom domain bindings, Conditional Access policy references.
+- **Informational** - Sign-in activity (helps prioritize app validation), soft-deleted users (UPN reuse blockers for up to 30 days).
 
 The status banner reads READY, REVIEW, or NOT READY based on hard-blocker count.
 
@@ -162,7 +166,7 @@ For a tenant with significant SharePoint/Power Platform/Intune surface, plan sup
 ## Troubleshooting
 
 **"Could not load file or assembly 'Microsoft.Graph.Authentication, Version=...'"**
-Multiple versions of the Graph SDK are installed and conflicting. Run `Get-Module Microsoft.Graph* -ListAvailable | Group-Object Version` — if you see multiple versions, do a clean reinstall (uninstall all, install one). The orchestrator's pinning logic will handle most cases automatically, but truly mixed installs need manual cleanup.
+Multiple versions of the Graph SDK are installed and conflicting. Run `Get-Module Microsoft.Graph* -ListAvailable | Group-Object Version` - if you see multiple versions, do a clean reinstall (uninstall all, install one). The orchestrator's pinning logic will handle most cases automatically, but truly mixed installs need manual cleanup.
 
 **"InteractiveBrowserCredential authentication failed: User canceled authentication"**
 A WAM dialog was dismissed or timed out. Re-run the orchestrator. If the issue persists, close all PowerShell windows (to clear in-process auth state) and try again from a fresh session.
