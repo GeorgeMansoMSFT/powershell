@@ -65,3 +65,4 @@ function Add-InventorySummary {
 }
 
 Write-Host "Configuration loaded. Domain: $DomainToInvestigate. Output: $OutputPath" -ForegroundColor Cyan
+

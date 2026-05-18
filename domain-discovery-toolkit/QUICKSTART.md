@@ -2,12 +2,19 @@
 
 ## First-time setup
 
-```powershell
-# Install required modules (one-time, may take 5-10 minutes)
-Install-Module Microsoft.Graph        -Scope CurrentUser -Force
-Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force
-Install-Module Az                       -Scope CurrentUser -Force
+No global PowerShell module install is required.
+
+On first run, the toolkit downloads exact tested Microsoft module versions into:
+
+```text
+.\.runtime\modules
 ```
+
+This local cache does not modify your PowerShell profile and does not install modules into `CurrentUser` or `AllUsers`. The first dependency download can take 5-10 minutes, especially if Azure discovery is enabled.
+
+The toolkit validates the cached module versions and manifest hashes before launching any discovery worker.
+
+If PowerShell Gallery is blocked in your environment, use the offline dependency pack from the release page. Extract `domain-migration-toolkit-dependencies.zip` beside `Run-AllDiscovery.ps1` so `.\.runtime\modules` exists, then re-run the toolkit.
 
 ## Configure
 
@@ -30,12 +37,12 @@ cd <toolkit folder>
 
 The orchestrator walks through these phases:
 
-1. **Module pinning** — auto-detects your installed Graph version and pins to it.
-2. **Graph auth** — opens a Microsoft sign-in dialog. Choose "Work or school account" and sign in with an account that has Global Reader (or higher).
-3. **Exchange Online prompt** — asks if you want to include EXO discovery. Default Yes. If yes, prompts for EXO auth.
-4. **Azure prompt** — asks if you want to include Azure resource discovery. Default Yes. Auth happens later in the child process.
-5. **Modules 01-10** — run sequentially in-process. Each prints findings as it goes.
-6. **Module 11 (Azure)** — launches a separate PowerShell process. Auth dialog appears for Azure. Resource Graph + per-subscription deep scan runs.
+1. **Scope prompts** — asks whether to include Exchange Online and Azure resources. Default Yes.
+2. **Runtime check** — validates `.\.runtime\modules` against `dependencies.lock.json`.
+3. **First-run download** — downloads missing exact module versions from PowerShell Gallery, with per-module progress.
+4. **Graph worker** — launches an isolated process, prompts for Graph auth, and runs identity modules.
+5. **Exchange worker** — launches an isolated process if selected, prompts for EXO auth, and runs Exchange discovery.
+6. **Azure worker** — launches an isolated process if selected, prompts for Azure auth, and runs Azure resource discovery.
 7. **HTML report** — generated at the end, opens in your default browser if you double-click it.
 
 Total runtime on a small tenant: 1-3 minutes. Larger tenants take longer (mostly the EXO mailbox enumeration).
@@ -44,9 +51,9 @@ Total runtime on a small tenant: 1-3 minutes. Larger tenants take longer (mostly
 
 You may see up to three authentication dialogs:
 
-- **Graph** at orchestrator start
-- **Exchange Online** at the EXO connect step
-- **Azure** in the child process
+- **Graph** when the isolated Graph worker starts
+- **Exchange Online** when the isolated EXO worker starts, if selected
+- **Azure** when the isolated Azure worker starts, if selected
 
 After the first authentication on a workstation, WAM (Windows' broker) caches the token at the OS level. Subsequent runs in the same Windows session usually have zero or one prompts.
 
@@ -60,6 +67,7 @@ Inside the timestamped output directory:
 - `inventory-summary.json` — same data as a JSON blob for tooling
 - `errors.log` — anything that went wrong during the run
 - `01-users-on-domain.csv` through `11-azure-*.csv` — detailed findings per module
+- `00-graph-worker-status.json`, `06-exchange-worker-status.json`, `11-azure-status.json` — worker status files used by the report generator
 
 ## Running individual modules
 
@@ -67,10 +75,10 @@ If you only need one slice (e.g., just Azure resources):
 
 ```powershell
 . .\config.ps1
-& .\modules\11-AzureResources.ps1 -Domain $DomainToInvestigate -OutputPath $OutputPath
+& .\modules\11-AzureResources.ps1 -Domain $DomainToInvestigate -OutputPath $OutputPath -ToolkitRoot (Get-Location).Path
 ```
 
-Modules 01-10 require Graph (and 06 requires EXO) to be connected first via `Connect-MgGraph` and `Connect-ExchangeOnline`. Module 11 is self-contained.
+Modules 01-10 are normally run through the Graph and Exchange worker scripts so the locked local runtime is loaded first. Direct module runs are mainly for development and troubleshooting.
 
 ## Permissions cheat sheet
 
@@ -89,10 +97,26 @@ For scheduled or pipeline execution, set in `config.ps1`:
 
 ```powershell
 $IncludeExchangeOnline = $true   # No prompt; will call Connect-ExchangeOnline
-$IncludeAzureResources = $true   # No prompt; child process will call Connect-AzAccount
+$IncludeAzureResources = $true   # No prompt; Azure worker will call Connect-AzAccount
 ```
 
 The interactive auth prompts (Connect-MgGraph, Connect-ExchangeOnline, Connect-AzAccount) still fire — they're separate from the toolkit's own scope prompts. For fully unattended auth, you'd need to use service principal authentication, which requires modifications to the orchestrator (out of scope for this toolkit).
+
+## Runtime controls
+
+```powershell
+# Re-download and re-validate locked dependencies
+.\Run-AllDiscovery.ps1 -ForceRuntimeRefresh
+
+# Do not download anything; fail if the local/offline runtime is incomplete
+.\Run-AllDiscovery.ps1 -NoDependencyDownload
+```
+
+To build the offline dependency pack for a release:
+
+```powershell
+.\tools\New-OfflineDependencyPack.ps1
+```
 
 ## Troubleshooting one-liner
 

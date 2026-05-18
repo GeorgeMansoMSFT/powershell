@@ -18,7 +18,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Domain,
-    [Parameter(Mandatory)] [string] $OutputPath
+    [Parameter(Mandatory)] [string] $OutputPath,
+    [string] $ToolkitRoot
 )
 
 $ModuleName = "AzureResources"
@@ -27,6 +28,7 @@ $NamesFile    = Join-Path $OutputPath "11-azure-resource-names.csv"
 $TagsFile     = Join-Path $OutputPath "11-azure-resource-tags.csv"
 $ConfigFile   = Join-Path $OutputPath "11-azure-app-config.csv"
 $GraphFile    = Join-Path $OutputPath "11-azure-resource-graph.csv"
+$FedCredFile  = Join-Path $OutputPath "11-azure-managed-identity-fedcreds.csv"
 $StatusFile   = Join-Path $OutputPath "11-azure-status.json"
 $ErrorLog     = Join-Path $OutputPath "errors.log"
 
@@ -43,7 +45,7 @@ function Write-Status {
         Module    = $ModuleName
         Count     = $TotalCount
         Notes     = $Notes
-        OutputFiles = @($DomainsFile, $NamesFile, $TagsFile, $ConfigFile, $GraphFile)
+        OutputFiles = @($DomainsFile, $NamesFile, $TagsFile, $ConfigFile, $GraphFile, $FedCredFile)
         Timestamp = (Get-Date -Format 'o')
     } | ConvertTo-Json -Depth 5 | Out-File -FilePath $StatusFile -Encoding UTF8
 }
@@ -56,16 +58,22 @@ if (Get-Module Microsoft.Graph* -ErrorAction SilentlyContinue) {
 }
 
 try {
-    Import-Module Az.Accounts -Force -ErrorAction Stop -WarningAction SilentlyContinue
-    Import-Module Az.Resources -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Import-Module Az.Websites -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Import-Module Az.ApiManagement -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Import-Module Az.Cdn -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Import-Module Az.FrontDoor -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Import-Module Az.Network -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-    Import-Module Az.ResourceGraph -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    if ($ToolkitRoot) {
+        . (Join-Path $ToolkitRoot "tools\ToolkitRuntime.ps1")
+        Import-ToolkitModuleGroup -ToolkitRoot $ToolkitRoot -Group "Azure"
+    } else {
+        Import-Module Az.Accounts -Force -ErrorAction Stop -WarningAction SilentlyContinue
+        Import-Module Az.Resources -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Import-Module Az.Websites -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Import-Module Az.ApiManagement -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Import-Module Az.Cdn -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Import-Module Az.FrontDoor -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Import-Module Az.Network -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Import-Module Az.ResourceGraph -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        Import-Module Az.ManagedServiceIdentity -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    }
 } catch {
-    Write-AzError "Failed to import Az modules: $($_.Exception.Message)"
+    Write-AzError "Failed to import Az modules from the toolkit runtime: $($_.Exception.Message)"
     Write-Status -TotalCount -1 -Notes "ERROR: Az module import failed"
     exit 1
 }
@@ -78,13 +86,29 @@ $ctx = Get-AzContext -ErrorAction SilentlyContinue
 #
 # Note: Get-AzContext can return a non-null context even when the underlying token
 # cache is empty/expired (stale context). We must validate by actually trying to
-# acquire a token, not just by checking whether $ctx exists.
+# acquire a token. Critically, Get-AzSubscription does NOT throw on auth failure -
+# it writes a warning and returns nothing. So we have to (a) capture its output
+# and check for results, AND (b) capture any warning messages it generates to
+# detect token acquisition failures.
 $contextValid = $false
 if ($ctx) {
     try {
-        # Cheap validation call - list subscriptions. If the token is dead, this fails.
-        $null = Get-AzSubscription -ErrorAction Stop -WarningAction SilentlyContinue | Select-Object -First 1
-        $contextValid = $true
+        # Use Get-AzAccessToken directly - it throws on auth failure, unlike Get-AzSubscription.
+        $testToken = Get-AzAccessToken -ResourceUrl "https://management.azure.com/" -ErrorAction Stop -WarningAction Stop 2>$null
+        if ($testToken -and $testToken.Token) {
+            # Also verify we can actually list at least one subscription. Capture warnings
+            # so a silent token failure on the subscription call doesn't slip through.
+            $subWarnings = @()
+            $subs = Get-AzSubscription -ErrorAction Stop -WarningAction SilentlyContinue -WarningVariable subWarnings
+            if ($subs -and -not ($subWarnings -match 'Unable to acquire token|authentication unavailable|SharedTokenCacheCredential')) {
+                $contextValid = $true
+            } else {
+                Write-Host "[$ModuleName] Az context exists but subscription enumeration failed (likely stale token cache)." -ForegroundColor DarkYellow
+                $contextValid = $false
+            }
+        } else {
+            $contextValid = $false
+        }
     } catch {
         Write-Host "[$ModuleName] Stale Az context detected ($($_.Exception.Message)). Re-authenticating..." -ForegroundColor DarkYellow
         $contextValid = $false
@@ -96,6 +120,8 @@ if (-not $contextValid) {
     try {
         # Clear any stale context first so Connect-AzAccount doesn't try to be clever
         Clear-AzContext -Force -ErrorAction SilentlyContinue | Out-Null
+        # Disconnect-AzAccount in case there's a half-connected session
+        Disconnect-AzAccount -ErrorAction SilentlyContinue | Out-Null
         Connect-AzAccount -ErrorAction Stop | Out-Null
         $ctx = Get-AzContext
         if (-not $ctx) {
@@ -108,20 +134,30 @@ if (-not $contextValid) {
     }
 }
 
-$subscriptions = Get-AzSubscription -ErrorAction SilentlyContinue
-if (-not $subscriptions -or $subscriptions.Count -eq 0) {
-    Write-AzError "No subscriptions found in current Az context."
-    Write-Status -TotalCount 0 -Notes "No subscriptions accessible"
+# Enumerate subscriptions, capturing warnings to detect any lingering auth issues
+$subWarnings = @()
+$subscriptions = Get-AzSubscription -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -WarningVariable subWarnings
+
+if ($subWarnings -match 'Unable to acquire token|authentication unavailable|SharedTokenCacheCredential') {
+    Write-AzError "Subscription enumeration produced auth warnings after Connect-AzAccount. Run Disconnect-AzAccount + Clear-AzContext manually, then re-run. Warnings: $($subWarnings -join '; ')"
+    Write-Status -TotalCount -1 -Notes "ERROR: Auth warnings during subscription enumeration"
+    exit 1
+}
+
+if (-not $subscriptions -or @($subscriptions).Count -eq 0) {
+    Write-AzError "No subscriptions accessible by the authenticated account. Verify the account has at least Reader role on one or more subscriptions, then re-run."
+    Write-Status -TotalCount 0 -Notes "No subscriptions accessible (account has no subscription role assignments)"
     exit 0
 }
 
-Write-Host "[$ModuleName] Scanning $($subscriptions.Count) subscription(s)..." -ForegroundColor Cyan
+Write-Host "[$ModuleName] Scanning $(@($subscriptions).Count) subscription(s)..." -ForegroundColor Cyan
 
 $customDomainFindings = @()
 $nameFindings         = @()
 $tagFindings          = @()
 $configFindings       = @()
 $graphFindings        = @()
+$fedCredFindings      = @()
 
 # ---------------------------------------------------------------
 # Pass 1: Resource Graph (fastest, broadest)
@@ -154,7 +190,7 @@ Resources
         }
         Write-Host "[$ModuleName]     Resource Graph: $($graphFindings.Count) hits" -ForegroundColor Green
     } else {
-        Write-AzError "Az.ResourceGraph module not available. Install with: Install-Module Az.ResourceGraph -Scope CurrentUser"
+        Write-AzError "Az.ResourceGraph module not available in the toolkit runtime. Re-run with -ForceRuntimeRefresh or refresh the offline dependency pack."
     }
 } catch {
     Write-AzError "Resource Graph query failed: $($_.Exception.Message)"
@@ -324,6 +360,46 @@ foreach ($sub in $subscriptions) {
             }
         }
     } catch { Write-AzError "App Gateway scan failed in $($sub.Name): $($_.Exception.Message)" }
+
+    # User-assigned managed identity federated credentials
+    try {
+        if (Get-Command Get-AzUserAssignedIdentity -ErrorAction SilentlyContinue) {
+            $allUAMIs = Get-AzUserAssignedIdentity -ErrorAction SilentlyContinue
+            foreach ($uami in $allUAMIs) {
+                try {
+                    $feds = Get-AzFederatedIdentityCredential `
+                        -ResourceGroupName $uami.ResourceGroupName `
+                        -IdentityName $uami.Name `
+                        -ErrorAction SilentlyContinue
+
+                    foreach ($fed in $feds) {
+                        $reasons = @()
+                        if ($fed.Issuer -like "*$Domain*") { $reasons += "Issuer" }
+                        if ($fed.Subject -like "*$Domain*") { $reasons += "Subject" }
+                        if (($fed.Audiences -join ";") -like "*$Domain*") { $reasons += "Audience" }
+
+                        if ($reasons.Count -gt 0) {
+                            $fedCredFindings += [PSCustomObject]@{
+                                Subscription = $sub.Name
+                                UAMIName = $uami.Name
+                                UAMIResourceGroup = $uami.ResourceGroupName
+                                UAMIPrincipalId = $uami.PrincipalId
+                                FedCredName = $fed.Name
+                                Issuer = $fed.Issuer
+                                Subject = $fed.Subject
+                                Audiences = ($fed.Audiences -join ";")
+                                MatchReasons = ($reasons -join ";")
+                            }
+                        }
+                    }
+                } catch {
+                    Write-AzError "Could not enumerate federated credentials for UAMI $($uami.Name): $($_.Exception.Message)"
+                }
+            }
+        } else {
+            Write-AzError "Az.ManagedServiceIdentity cmdlets not available. Skipping managed identity federated credential scan."
+        }
+    } catch { Write-AzError "Managed identity federated credential scan failed in $($sub.Name): $($_.Exception.Message)" }
 }
 
 # ---------------------------------------------------------------
@@ -348,10 +424,12 @@ Write-FindingsCsv -Findings $configFindings -Path $ConfigFile `
     -EmptyHeader "Subscription,ResourceType,ResourceName,ResourceGroup,ConfigType,ConfigName,ValueSnippet,ResourceId"
 Write-FindingsCsv -Findings $graphFindings -Path $GraphFile `
     -EmptyHeader "Subscription,ResourceType,ResourceName,ResourceGroup,Location,MatchType,Tags"
+Write-FindingsCsv -Findings $fedCredFindings -Path $FedCredFile `
+    -EmptyHeader "Subscription,UAMIName,UAMIResourceGroup,UAMIPrincipalId,FedCredName,Issuer,Subject,Audiences,MatchReasons"
 
-$totalCount = $customDomainFindings.Count + $nameFindings.Count + $tagFindings.Count + $configFindings.Count
+$totalCount = $customDomainFindings.Count + $nameFindings.Count + $tagFindings.Count + $configFindings.Count + $graphFindings.Count + $fedCredFindings.Count
 
-$notes = "CustomDomains=$($customDomainFindings.Count); Names=$($nameFindings.Count); Tags=$($tagFindings.Count); Config=$($configFindings.Count); ResourceGraph=$($graphFindings.Count)"
+$notes = "CustomDomains=$($customDomainFindings.Count); Names=$($nameFindings.Count); Tags=$($tagFindings.Count); Config=$($configFindings.Count); ResourceGraph=$($graphFindings.Count); ManagedIdentityFedCreds=$($fedCredFindings.Count)"
 Write-Host "[$ModuleName] Total: $totalCount findings. $notes" -ForegroundColor Green
 
 Write-Status -TotalCount $totalCount -Notes $notes

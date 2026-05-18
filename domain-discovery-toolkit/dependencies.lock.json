@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "moduleRoot": ".runtime/modules",
+  "groups": {
+    "Graph": [
+      {
+        "name": "Microsoft.Graph.Authentication",
+        "version": "2.36.1",
+        "manifestSha256": "2F51C3D8E611B9D3382093565B544F45FFC65F08879F5C01E41330A762682231"
+      },
+      {
+        "name": "Microsoft.Graph.Users",
+        "version": "2.36.1",
+        "manifestSha256": "3F4DBDCD18E94BC3F2961375EFC62CD533FEC90ED2501320CAB86933411EF1B2"
+      },
+      {
+        "name": "Microsoft.Graph.Groups",
+        "version": "2.36.1",
+        "manifestSha256": "A6264127762F2EDA62B8976C499EBAA0955D2911BF9B2B4DD28CEF207C75A308"
+      },
+      {
+        "name": "Microsoft.Graph.Applications",
+        "version": "2.36.1",
+        "manifestSha256": "567E2CE27DB10EF32F8A70931C9BDCEDE0FB19C6A7EC0C8AE7F193EF92B2CCDF"
+      },
+      {
+        "name": "Microsoft.Graph.Identity.SignIns",
+        "version": "2.36.1",
+        "manifestSha256": "4A54AE03B9794EADF46CD957E06A58FD0BABC571C312430476115C484CE66808"
+      },
+      {
+        "name": "Microsoft.Graph.Identity.DirectoryManagement",
+        "version": "2.36.1",
+        "manifestSha256": "60887FCA644A10C3E7D02EC76D9C7F746BF713D1DE3BE3FB19B694F923E8715E"
+      },
+      {
+        "name": "Microsoft.Graph.Reports",
+        "version": "2.36.1",
+        "manifestSha256": "63BC4567C8581B8246D5150148615A1878B653ECCEAAE1BBF9185CC44E252987"
+      }
+    ],
+    "Exchange": [
+      {
+        "name": "ExchangeOnlineManagement",
+        "version": "3.5.1",
+        "manifestSha256": "CBF546F9A049B7C55A26038B8EBAF02AE2F779DE5AD27499EB791B13B0D284BB"
+      }
+    ],
+    "Azure": [
+      {
+        "name": "Az.Accounts",
+        "version": "5.4.0",
+        "manifestSha256": "F829C6F49D1ED50B643D9F68476FD195C47D592CA45973797383E14671B3E681"
+      },
+      {
+        "name": "Az.Resources",
+        "version": "9.1.0",
+        "manifestSha256": "0C0A91AAD55341F2461FF9CA72A43ECADA8112995862C66E10B8D328DF589B81"
+      },
+      {
+        "name": "Az.Websites",
+        "version": "3.4.3",
+        "manifestSha256": "7DE42DAD7B5C4B1B19A1E6281C3079DF19CF4EA3F9884A29059297321BCABB2C"
+      },
+      {
+        "name": "Az.ApiManagement",
+        "version": "4.1.0",
+        "manifestSha256": "38882D48E4DE6B870B3AD7301DE381A288BFC397F91E486F750ACCD402AA95BB"
+      },
+      {
+        "name": "Az.Cdn",
+        "version": "6.0.2",
+        "manifestSha256": "B84F00EA03EEA1E8B78765E2926E681F2014502D363FF84B18D9F35C725857A7"
+      },
+      {
+        "name": "Az.FrontDoor",
+        "version": "2.1.0",
+        "manifestSha256": "04B117E60ECE5F9C068F8CEB8495FD4660C4A60F30E36686F6345AD5259B825F"
+      },
+      {
+        "name": "Az.Network",
+        "version": "7.27.0",
+        "manifestSha256": "7E9AD543FD355ACD4CBFFD5D34FDA7ADFE1044A95F8BA3191D3037BBF0397714"
+      },
+      {
+        "name": "Az.ResourceGraph",
+        "version": "1.2.1",
+        "manifestSha256": "5DCA6B03F82ED6DABA9F75D06C108A6DF3E876B1B0F591D70FC4B183E3854092"
+      },
+      {
+        "name": "Az.ManagedServiceIdentity",
+        "version": "2.0.0",
+        "manifestSha256": "D86D80FEBA6B848F66F9710D9682F9EA8BFED43A9777BC007A0FCFA663FFE937"
+      }
+    ]
+  }
+}
