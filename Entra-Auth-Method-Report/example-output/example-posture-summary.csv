@@ -1,0 +1,8 @@
+"RecordType","RunUtc","ObservationWindowStartUtc","ObservationWindowEndUtc","StrengthTier","RegisteredUserCount","ExplicitlyObservedUserCount","TotalUsers","SuccessfulInteractiveSignInCount","ExplicitMethodSignInCount","ExplicitMethodEvidenceRate","Notes"
+"Tier distribution","2026-07-24T20:41:18Z","2026-07-23T20:41:18Z","2026-07-24T20:41:18Z","Phishing-resistant MFA","2","0","","","","","Example synthetic data"
+"Tier distribution","2026-07-24T20:41:18Z","2026-07-23T20:41:18Z","2026-07-24T20:41:18Z","Passwordless MFA","0","0","","","","","Example synthetic data"
+"Tier distribution","2026-07-24T20:41:18Z","2026-07-23T20:41:18Z","2026-07-24T20:41:18Z","Strong MFA (app, token, or TAP)","4","1","","","","","Example synthetic data"
+"Tier distribution","2026-07-24T20:41:18Z","2026-07-23T20:41:18Z","2026-07-24T20:41:18Z","Phone-based MFA","0","0","","","","","Example synthetic data"
+"Tier distribution","2026-07-24T20:41:18Z","2026-07-23T20:41:18Z","2026-07-24T20:41:18Z","Single-factor / SSPR only","0","0","","","","","Example synthetic data"
+"Tier distribution","2026-07-24T20:41:18Z","2026-07-23T20:41:18Z","2026-07-24T20:41:18Z","None / unclassified","17","0","","","","","Example synthetic data"
+"Evidence coverage","2026-07-24T20:41:18Z","2026-07-23T20:41:18Z","2026-07-24T20:41:18Z","All users","","","23","14","5","35.7%","Explicit method evidence is partial; unobserved does not mean unused."
