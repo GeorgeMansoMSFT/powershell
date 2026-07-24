@@ -157,24 +157,6 @@ restricted evidence CSV exceeds `MaxEvidenceRowsInWorkbook`, the workbook omits
 the Evidence - Restricted sheet and identifies that fact in its Overview; the
 complete evidence CSV remains available to authorized technical/audit users.
 
-### Local scale validation
-
-Maintainers can create a 10,000-user synthetic fixture without contacting
-Entra, then exercise the packager and its evidence guardrail:
-
-```powershell
-.\tests\New-EntraAuthPostureScaleFixture.ps1 -UserCount 10000 -EvidenceRowCount 25000
-.\New-EntraAuthPosturePackage.ps1 `
-  -PosturePath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence.csv `
-  -SummaryPath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence-summary.csv `
-  -EvidencePath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence-evidence.csv `
-  -OutputDirectory .\output\scale-fixture\package `
-  -MaxEvidenceRowsInWorkbook 5000
-```
-
-The fixture contains synthetic values only. It validates local CSV/import and
-Excel packaging behavior; it cannot simulate Microsoft Graph service latency or
-tenant throttling.
 
 ## How to interpret the fields
 
