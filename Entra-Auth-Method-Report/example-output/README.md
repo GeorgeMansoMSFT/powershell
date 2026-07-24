@@ -11,7 +11,7 @@ one-day example run, but they do not describe a real customer tenant.
 - `example-posture-summary.csv` - tier distribution and evidence coverage.
 - `example-posture-evidence.csv` - synthetic, restricted evidence example.
 - `example-posture.xlsx` - packaged operations workbook.
-- `example-posture-executive-summary.pdf` - customer-facing summary.
+- `example-posture-executive-summary.pdf` - exeutive summary.
 
 The evidence file and the Evidence - Restricted worksheet model sensitive
 authentication telemetry. Restrict access to those files in real deployments.
