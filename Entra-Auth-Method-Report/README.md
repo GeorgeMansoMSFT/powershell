@@ -5,6 +5,18 @@ method and the strongest authentication method **explicitly observed** in
 successful interactive sign-ins. It is designed for customer posture reviews,
 not as a real-time access-control engine.
 
+## Package layout
+
+Run [the root report script](Export-EntraStrongestAuthMethodReport.ps1) from
+the package root. It invokes the supporting scripts automatically.
+
+| Location | Purpose |
+| --- | --- |
+| `Export-EntraStrongestAuthMethodReport.ps1` | Main report entry point. |
+| `support/` | HTML generator, XLSX packager, and prerequisites check. |
+| `tests/` | Maintainer-only synthetic scale fixture. |
+| `example-output/` | Fully synthetic sample deliverables. |
+
 ## What it does
 
 The report joins two Microsoft Graph data sources:
@@ -38,13 +50,13 @@ the CSV and HTML files without requiring an added module.
 Run the local-only check first:
 
 ```powershell
-.\Test-EntraAuthPosturePrerequisites.ps1
+.\support\Test-EntraAuthPosturePrerequisites.ps1
 ```
 
 Run the full read-only tenant check before an engagement:
 
 ```powershell
-.\Test-EntraAuthPosturePrerequisites.ps1 -TestGraphAccess
+.\support\Test-EntraAuthPosturePrerequisites.ps1 -TestGraphAccess
 ```
 
 The preflight checks PowerShell, the Graph authentication module, output-folder
@@ -175,7 +187,7 @@ Entra, then exercise the packager and its evidence guardrail:
 
 ```powershell
 .\tests\New-EntraAuthPostureScaleFixture.ps1 -UserCount 10000 -EvidenceRowCount 25000
-.\New-EntraAuthPosturePackage.ps1 `
+.\support\New-EntraAuthPosturePackage.ps1 `
   -PosturePath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence.csv `
   -SummaryPath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence-summary.csv `
   -EvidencePath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence-evidence.csv `

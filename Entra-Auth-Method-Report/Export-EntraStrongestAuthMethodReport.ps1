@@ -600,7 +600,7 @@ if ($ExportEvidence -and $evidenceCount -gt 0) { Write-Host "Evidence report:   
 elseif ($ExportEvidence) { Write-Host 'Evidence report:         no explicitly observed methods in the selected window' }
 
 if ($GenerateHtmlSummary) {
-    $htmlSummaryPath = Join-Path $PSScriptRoot 'New-EntraAuthPostureHtmlSummary.ps1'
+    $htmlSummaryPath = Join-Path (Join-Path $PSScriptRoot 'support') 'New-EntraAuthPostureHtmlSummary.ps1'
     if (-not (Test-Path -LiteralPath $htmlSummaryPath)) {
         Write-Warning "HTML summary generation was requested, but the helper is missing: $htmlSummaryPath"
     }
@@ -610,7 +610,7 @@ if ($GenerateHtmlSummary) {
 }
 
 if ($PackageDeliverables) {
-    $packagerPath = Join-Path $PSScriptRoot 'New-EntraAuthPosturePackage.ps1'
+    $packagerPath = Join-Path (Join-Path $PSScriptRoot 'support') 'New-EntraAuthPosturePackage.ps1'
     if (-not (Test-Path -LiteralPath $packagerPath)) {
         Write-Warning "Deliverable packaging was requested, but the packager is missing: $packagerPath"
     }
