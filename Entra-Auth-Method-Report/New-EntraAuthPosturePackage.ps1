@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Creates an XLSX workbook and executive-summary PDF from Entra posture CSV files.
+Creates an XLSX workbook from Entra posture CSV files.
 
 .DESCRIPTION
 Uses the Microsoft Excel desktop COM server already installed on Windows. No
@@ -137,7 +137,7 @@ function Add-ExcelTable {
     $tableRange.Value = $values
     $headerRange = $Worksheet.Range($Worksheet.Cells.Item($StartRow, $StartColumn), $Worksheet.Cells.Item($StartRow, $StartColumn + $Columns.Count - 1))
     $headerRange.Font.Bold = $true
-    $headerRange.Font.Color = [System.Drawing.Color]::White.ToArgb()
+    $headerRange.Font.Color = Get-ExcelColor 255 255 255
     $headerRange.Interior.Color = Get-ExcelColor 31 78 121
     $table = $Worksheet.ListObjects.Add(1, $tableRange, $null, 1)
     $table.Name = $TableName
@@ -173,7 +173,7 @@ function Set-WorksheetTitle {
     $titleRange.Font.Name = 'Aptos Display'
     $titleRange.Font.Size = 18
     $titleRange.Font.Bold = $true
-    $titleRange.Font.Color = [System.Drawing.Color]::White.ToArgb()
+    $titleRange.Font.Color = Get-ExcelColor 255 255 255
     $titleRange.Interior.Color = Get-ExcelColor 31 78 121
     $titleRange.RowHeight = 30
     Release-ComObject -Object $titleRange
@@ -199,21 +199,20 @@ function Add-ReviewRow {
     })
 }
 
-function Get-AvailablePackagePaths {
+function Get-AvailableWorkbookPath {
     param([Parameter(Mandatory)][string] $Directory, [Parameter(Mandatory)][string] $BaseName)
 
     $index = 0
     do {
         $suffix = if ($index -eq 0) { '' } else { "-$index" }
         $workbook = Join-Path $Directory "$BaseName$suffix.xlsx"
-        $pdf = Join-Path $Directory "$BaseName$suffix-executive-summary.pdf"
         $index++
-    } while ((Test-Path -LiteralPath $workbook) -or (Test-Path -LiteralPath $pdf))
-    return [pscustomobject]@{ WorkbookPath = $workbook; PdfPath = $pdf }
+    } while (Test-Path -LiteralPath $workbook)
+    return $workbook
 }
 
 if (-not (Test-ExcelDesktop)) {
-    Write-Warning 'Desktop Microsoft Excel is not installed or its COM server cannot be started. CSV reports were preserved; no XLSX or PDF was created.'
+    Write-Verbose 'Desktop Microsoft Excel is not installed or its COM server cannot be started. CSV and HTML reports were preserved; no XLSX was created.'
     return
 }
 
@@ -232,9 +231,7 @@ if ($evidenceRowCount -gt $MaxEvidenceRowsInWorkbook) {
 }
 if (-not (Test-Path -LiteralPath $OutputDirectory)) { New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null }
 $baseName = [System.IO.Path]::GetFileNameWithoutExtension($PosturePath)
-$packagePaths = Get-AvailablePackagePaths -Directory $OutputDirectory -BaseName $baseName
-$workbookPath = $packagePaths.WorkbookPath
-$pdfPath = $packagePaths.PdfPath
+$workbookPath = Get-AvailableWorkbookPath -Directory $OutputDirectory -BaseName $baseName
 
 $reviewRows = New-Object System.Collections.Generic.List[object]
 foreach ($user in $posture) {
@@ -393,9 +390,7 @@ try {
     $guideSheet.Columns.Item(3).ColumnWidth = 34
 
     $workbook.SaveAs($workbookPath, 51)
-    $overview.ExportAsFixedFormat(0, $pdfPath)
     Write-Host "Workbook created: $workbookPath"
-    Write-Host "Executive PDF created: $pdfPath"
 }
 finally {
     if ($null -ne $workbook) {

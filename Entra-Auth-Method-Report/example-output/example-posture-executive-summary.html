@@ -1,0 +1,91 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Microsoft Entra Authentication Posture</title>
+  <style>
+    :root { --navy:#103b61; --blue:#1769aa; --cyan:#3d9ed1; --ink:#17212b; --muted:#617080; --line:#d7e0e8; --panel:#ffffff; --background:#f3f7fa; --good:#167a48; --watch:#b76e00; --attention:#b42318; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--background); color:var(--ink); font-family:"Segoe UI",Arial,sans-serif; font-size:14px; line-height:1.45; }
+    .hero { background:linear-gradient(120deg,#0b314f,#1769aa); color:#fff; padding:38px max(5vw,28px) 34px; } .eyebrow { margin:0 0 8px; color:#bfe9ff; font-size:12px; font-weight:700; letter-spacing:.11em; text-transform:uppercase; } h1 { margin:0; font-size:32px; line-height:1.15; letter-spacing:-.03em; } .subtitle { margin:12px 0 0; max-width:760px; color:#e4f4ff; font-size:16px; } .meta { display:flex; flex-wrap:wrap; gap:10px 28px; margin-top:24px; font-size:13px; } .meta span { color:#d8ebf8; } .meta strong { color:#fff; }
+    main { max-width:1180px; margin:0 auto; padding:28px; } h2 { margin:0 0 14px; font-size:19px; letter-spacing:-.01em; } h3 { margin:0 0 6px; font-size:15px; } .section { margin-top:28px; } .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; } .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; } .card, .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; box-shadow:0 2px 7px rgba(16,59,97,.06); } .card { min-height:135px; padding:18px; border-top:4px solid var(--blue); } .card.good { border-top-color:var(--good); } .card.watch { border-top-color:var(--watch); } .card.attention { border-top-color:var(--attention); } .card-label { color:var(--muted); font-weight:600; } .metric { margin:8px 0 4px; font-size:29px; font-weight:700; letter-spacing:-.035em; } .detail { color:var(--muted); font-size:13px; } .panel { padding:22px; } .distribution-row { display:grid; grid-template-columns:minmax(180px,1.35fr) minmax(190px,2fr) minmax(190px,2fr); gap:14px; align-items:center; padding:13px 0; border-top:1px solid var(--line); } .distribution-row:first-of-type { border-top:0; } .tier-name { font-weight:650; } .bar-group { min-width:0; } .bar-label { display:block; margin-bottom:5px; color:var(--muted); font-size:12px; } .bar-track { height:10px; overflow:hidden; background:#e7eef4; border-radius:99px; } .bar { min-width:2px; height:100%; border-radius:99px; } .registered { background:var(--blue); } .observed { background:var(--cyan); } .attention .registered { background:var(--attention); } .watch .registered { background:var(--watch); } .legend { display:flex; gap:18px; margin:-4px 0 11px; color:var(--muted); font-size:12px; } .legend i { display:inline-block; width:10px; height:10px; margin-right:5px; border-radius:2px; vertical-align:-1px; } .callout { padding:17px 18px; border-radius:8px; } .callout.attention { background:#fff0ef; border:1px solid #f2c3bf; } .callout.watch { background:#fff8e8; border:1px solid #ecd18e; } .callout.good { background:#edf8f1; border:1px solid #bde1c9; } .callout p { margin:0; color:#3d4b57; } .note { color:var(--muted); } footer { max-width:1180px; margin:0 auto; padding:8px 28px 35px; color:var(--muted); font-size:12px; }
+    @media (max-width:820px) { .cards,.grid { grid-template-columns:1fr 1fr; } .distribution-row { grid-template-columns:1fr; gap:7px; } } @media (max-width:540px) { main { padding:18px; } .hero { padding:28px 20px; } h1 { font-size:27px; } .cards,.grid { grid-template-columns:1fr; } }
+    @media print { @page { size:auto; margin:12mm; } body { background:#fff; font-size:11px; } .hero { padding:22px; } h1 { font-size:25px; } main { max-width:none; padding:16px 0; } .section { margin-top:18px; } .cards { gap:8px; } .card,.panel { box-shadow:none; } .card { min-height:105px; padding:12px; } .metric { font-size:23px; } .distribution-row,.panel,.callout { break-inside:avoid; } footer { padding:8px 0; } * { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <p class="eyebrow">Executive summary &middot; aggregate data only</p>
+    <h1>Microsoft Entra Authentication Posture</h1>
+    <p class="subtitle">Registration strength and explicitly observed successful interactive sign-in evidence. This is a reporting view, not an access-control decision.</p>
+    <div class="meta"><span><strong>Report scope:</strong> 2026-07-23T20:41:18Z through 2026-07-24T20:41:18Z</span><span><strong>Generated:</strong> 2026-07-27 14:54:49 UTC</span></div>
+  </header>
+  <main>
+    <section class="section">
+      <h2>Posture at a glance</h2>
+      <div class="cards">
+        <article class="card"><div class="card-label">Users in scope</div><div class="metric">23</div><div class="detail">2 privileged accounts reported by Entra</div></article>
+        <article class="card good"><div class="card-label">Phishing-resistant registration</div><div class="metric">8.7 %</div><div class="detail">2 users with FIDO2, Windows Hello for Business, or certificate</div></article>
+        <article class="card good"><div class="card-label">Passwordless-capable</div><div class="metric">8.7 %</div><div class="detail">2 users reported as passwordless-capable</div></article>
+        <article class="card good"><div class="card-label">MFA-capable</div><div class="metric">26.1 %</div><div class="detail">6 users reported as MFA-capable</div></article>
+        <article class="card watch"><div class="card-label">Explicit-method evidence coverage</div><div class="metric">35.7 %</div><div class="detail">5 of 14 successful interactive sign-ins</div></article>
+        <article class="card attention"><div class="card-label">Priority account review</div><div class="metric">1</div><div class="detail">Privileged account with no classified registration</div></article>
+      </div>
+    </section>
+    <section class="section">
+      <h2>Registration strength distribution</h2>
+      <div class="panel">
+        <div class="legend"><span><i style="background:#1769aa"></i>Registered strongest method</span><span><i style="background:#3d9ed1"></i>Strongest explicitly observed method</span></div>
+              <div class="distribution-row good">
+        <div class="tier-name">Phishing-resistant MFA</div>
+        <div class="bar-group"><span class="bar-label">Registered 2</span><div class="bar-track"><div class="bar registered" style="width: 11.76%"></div></div></div>
+        <div class="bar-group"><span class="bar-label">Explicitly observed 0</span><div class="bar-track"><div class="bar observed" style="width: 0%"></div></div></div>
+      </div>
+      <div class="distribution-row good">
+        <div class="tier-name">Passwordless MFA</div>
+        <div class="bar-group"><span class="bar-label">Registered 0</span><div class="bar-track"><div class="bar registered" style="width: 0%"></div></div></div>
+        <div class="bar-group"><span class="bar-label">Explicitly observed 0</span><div class="bar-track"><div class="bar observed" style="width: 0%"></div></div></div>
+      </div>
+      <div class="distribution-row good">
+        <div class="tier-name">Strong MFA (app, token, or TAP)</div>
+        <div class="bar-group"><span class="bar-label">Registered 4</span><div class="bar-track"><div class="bar registered" style="width: 23.53%"></div></div></div>
+        <div class="bar-group"><span class="bar-label">Explicitly observed 1</span><div class="bar-track"><div class="bar observed" style="width: 5.88%"></div></div></div>
+      </div>
+      <div class="distribution-row watch">
+        <div class="tier-name">Phone-based MFA</div>
+        <div class="bar-group"><span class="bar-label">Registered 0</span><div class="bar-track"><div class="bar registered" style="width: 0%"></div></div></div>
+        <div class="bar-group"><span class="bar-label">Explicitly observed 0</span><div class="bar-track"><div class="bar observed" style="width: 0%"></div></div></div>
+      </div>
+      <div class="distribution-row watch">
+        <div class="tier-name">Single-factor / SSPR only</div>
+        <div class="bar-group"><span class="bar-label">Registered 0</span><div class="bar-track"><div class="bar registered" style="width: 0%"></div></div></div>
+        <div class="bar-group"><span class="bar-label">Explicitly observed 0</span><div class="bar-track"><div class="bar observed" style="width: 0%"></div></div></div>
+      </div>
+      <div class="distribution-row attention">
+        <div class="tier-name">None / unclassified</div>
+        <div class="bar-group"><span class="bar-label">Registered 17</span><div class="bar-track"><div class="bar registered" style="width: 100%"></div></div></div>
+        <div class="bar-group"><span class="bar-label">Explicitly observed 0</span><div class="bar-track"><div class="bar observed" style="width: 0%"></div></div></div>
+      </div>
+      </div>
+    </section>
+    <section class="section">
+      <h2>Recommended review focus</h2>
+      <div class="grid">
+        <article class="callout attention"><h3>Privileged accounts</h3><p>1 privileged account has no classified registered method. Confirm account purpose and approved controls before remediation.</p></article>
+        <article class="callout watch"><h3>Classification queue</h3><p>17 users have no classified registration. Classify service, test, break-glass, B2B, and human identities before treating this as a gap.</p></article>
+        <article class="callout watch"><h3>Sign-in evidence</h3><p>14 of 14 successful interactive sign-ins reported an MFA requirement. Use the restricted evidence CSV for technical validation.</p></article>
+      </div>
+    </section>
+    <section class="section">
+      <h2>How to read this report</h2>
+      <div class="grid">
+        <article class="panel"><h3>Registered versus observed</h3><p class="note">Registered strength is the highest-scoring method currently reported for a user. Explicit observation is limited to successful interactive sign-ins that returned a classifiable authentication step in this report window.</p></article>
+        <article class="panel"><h3>Evidence caveat</h3><p class="note">A missing explicit method does not mean that a user did not authenticate or did not use MFA. Existing sessions and token claims can satisfy a requirement without a fresh factor in that event.</p></article>
+        <article class="panel"><h3>Supporting deliverables</h3><p class="note">Use the CSV or optional workbook for user-level review. The restricted evidence CSV may contain sign-in identifiers, IP addresses, and device metadata and should be shared only with authorized audiences.</p></article>
+      </div>
+    </section>
+  </main>
+  <footer>Generated locally from Microsoft Graph report exports. No external scripts, fonts, tracking, or network resources are used. Open in a browser and use Print to PDF when a fixed-format copy is required.</footer>
+</body>
+</html>

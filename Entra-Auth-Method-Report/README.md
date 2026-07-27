@@ -26,11 +26,12 @@ The package intentionally keeps dependencies small.
 | --- | --- | --- |
 | Core CSV reporting | Windows PowerShell 5.1 or PowerShell 7 | `Microsoft.Graph.Authentication` 2.x |
 | Entra sign-in evidence | Core reporting plus Entra sign-in-log access | `AuditLog.Read.All`, suitable Entra role, and sign-in-log availability |
-| XLSX and PDF packaging | Windows with desktop Excel | Native Excel COM automation; no added PowerShell module |
+| Executive HTML summary | Windows PowerShell 5.1 or PowerShell 7 | Built-in .NET only; no added module, browser, or network dependency |
+| XLSX workbook | Windows with desktop Excel | Native Excel COM automation; no added PowerShell module |
 
-CSV reporting is the core deliverable. Excel/PDF packaging is optional: if
-desktop Excel is unavailable, the report still creates the CSV files and emits a
-clear warning.
+CSV and HTML reporting are the core deliverables. The script attempts an XLSX
+workbook automatically when desktop Excel is available; otherwise it retains
+the CSV and HTML files without requiring an added module.
 
 ## Preflight before customer use
 
@@ -67,7 +68,8 @@ package; many customers block it because it can be abused in phishing attacks.
   Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
   ```
 
-- Desktop Excel is optional and only required by `-PackageDeliverables`.
+- Desktop Excel is optional and only required for the automatically attempted
+  XLSX workbook; the executive HTML summary does not require it.
 
 ### Entra access
 
@@ -97,11 +99,17 @@ Specify a tenant, exclude B2B guests, and use a selected output path:
   -OutputPath C:\Reports\Entra-AuthPosture.csv
 ```
 
-Create the customer workbook and executive-summary PDF when desktop Excel is
-available:
+By default, the report creates CSVs and the executive HTML summary, then also
+creates an XLSX workbook when desktop Excel is available:
 
 ```powershell
-.\Export-EntraStrongestAuthMethodReport.ps1 -DaysBack 30 -PackageDeliverables $true
+.\Export-EntraStrongestAuthMethodReport.ps1 -DaysBack 30
+```
+
+Skip the XLSX attempt on a workstation without Excel or for a CSV/HTML-only run:
+
+```powershell
+.\Export-EntraStrongestAuthMethodReport.ps1 -DaysBack 30 -PackageDeliverables $false
 ```
 
 Registration-only fallback (skips the beta sign-in query):
@@ -120,7 +128,8 @@ Registration-only fallback (skips the beta sign-in query):
 | `IncludeGuests` | `true` | Includes B2B guests; use `$false` for members only. |
 | `IncludeSignInActivity` | `true` | Reads beta sign-ins for explicit-method evidence; set `$false` for registration-only reporting. |
 | `ExportEvidence` | `true` | Creates the restricted evidence CSV when classifiable methods are observed. |
-| `PackageDeliverables` | `false` | Creates the XLSX workbook and executive PDF through optional desktop Excel automation. |
+| `GenerateHtmlSummary` | `true` | Creates a self-contained, aggregate-only executive HTML report. It has no Excel or module dependency. Set to `$false` to omit it. |
+| `PackageDeliverables` | `true` | Attempts an XLSX workbook through desktop Excel. If Excel is unavailable, the CSV and HTML files are retained. Set to `$false` to skip the XLSX attempt. |
 | `SignInQueryChunkHours` | `24` | Retrieves sign-ins in bounded time chunks. Reduce for exceptionally high-volume tenants. |
 | `GraphMaxRetryAttempts` | `6` | Retry limit for throttling and transient Graph service failures. |
 | `MaxEvidenceRowsInWorkbook` | `100000` | XLSX evidence-sheet ceiling. The complete restricted CSV is retained when this limit is exceeded. Set `0` to always omit that worksheet. |
@@ -132,11 +141,11 @@ Registration-only fallback (skips the beta sign-in query):
 | `Entra-AuthPosture-*.csv` | Security/operations | One row per reported user; registration, observation, capability, and coverage fields. |
 | `*-summary.csv` | Operations/automation | Numeric tier distribution and separate evidence coverage fields. |
 | `*-evidence.csv` | Restricted technical/audit audience | Source sign-in IDs, raw authentication steps, app, IP, and device metadata for explicit-method findings. |
+| `*-executive-summary.html` | Leadership / customer stakeholders | Self-contained aggregate executive summary; works offline in a modern browser and can be printed to PDF. |
 | `*.xlsx` | Customer operations | Overview, Review Queue, User Posture, Evidence - Restricted, and Scoring Guide sheets. |
-| `*-executive-summary.pdf` | Leadership | One-page posture summary and interpretation notes. |
 
-Existing XLSX and PDF output files are never overwritten; the packaging helper
-adds a numeric suffix instead. Source CSVs are always retained.
+Existing XLSX output files are never overwritten; the packaging helper adds a
+numeric suffix instead. Source CSVs are always retained.
 
 ## Large-tenant behavior
 
@@ -151,12 +160,32 @@ For high-volume tenants, start with a 1- or 7-day window, validate timing and
 evidence coverage, then expand the window. Use a smaller
 `-SignInQueryChunkHours` value if a chunk is slow or repeatedly throttled.
 
-Excel/PDF packaging is intentionally secondary to CSV at scale. The packager
+The HTML summary is intentionally aggregate-only and is lightweight even for
+large tenants; it does not embed the restricted evidence CSV or user-level
+data. XLSX packaging is intentionally secondary to CSV at scale. The packager
 uses bulk Excel writes and skips expensive AutoFit on large tables. If the
 restricted evidence CSV exceeds `MaxEvidenceRowsInWorkbook`, the workbook omits
 the Evidence - Restricted sheet and identifies that fact in its Overview; the
 complete evidence CSV remains available to authorized technical/audit users.
 
+### Local scale validation
+
+Maintainers can create a 10,000-user synthetic fixture without contacting
+Entra, then exercise the packager and its evidence guardrail:
+
+```powershell
+.\tests\New-EntraAuthPostureScaleFixture.ps1 -UserCount 10000 -EvidenceRowCount 25000
+.\New-EntraAuthPosturePackage.ps1 `
+  -PosturePath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence.csv `
+  -SummaryPath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence-summary.csv `
+  -EvidencePath .\output\scale-fixture\Entra-AuthPosture-scale-10000-users-25000-evidence-evidence.csv `
+  -OutputDirectory .\output\scale-fixture\package `
+  -MaxEvidenceRowsInWorkbook 5000
+```
+
+The fixture contains synthetic values only. It validates local CSV/import and
+Excel packaging behavior; it cannot simulate Microsoft Graph service latency or
+tenant throttling.
 
 ## How to interpret the fields
 
@@ -215,7 +244,7 @@ automatic compliance failure.
 | Browser sign-in is hidden or blocked | WAM/embedded terminal behavior | Run from a supported interactive desktop PowerShell session; do not weaken tenant policy by enabling device code flow for this tool. |
 | Sign-in pass fails | Missing Graph consent, Entra role, licensing, retention, or beta restriction | Run `-IncludeSignInActivity $false` for registration-only posture and attach preflight results for support. |
 | No explicit method observed | Token/session reuse or no successful interactive sign-in | Review evidence coverage; do not report this as no MFA. |
-| No XLSX/PDF | Excel is not installed or cannot start | CSVs are still complete; run the packager from a Windows workstation with desktop Excel. |
+| No XLSX | Excel is not installed or cannot start | CSV and HTML reports are still complete; run from a Windows workstation with desktop Excel if the workbook is required. |
 
 ## Microsoft references
 

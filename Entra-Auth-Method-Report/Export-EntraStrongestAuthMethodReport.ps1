@@ -12,6 +12,8 @@ OUTPUTS
   evidence coverage.
 * Summary CSV: tier distribution and sign-in evidence coverage.
 * Evidence CSV: auditable source records for each explicitly observed method.
+* Executive HTML summary: aggregate customer-facing posture overview.
+* XLSX workbook: created automatically when desktop Excel is available.
 #>
 [CmdletBinding()]
 param(
@@ -29,7 +31,9 @@ param(
 
     [bool] $ExportEvidence = $true,
 
-    [bool] $PackageDeliverables = $false,
+    [bool] $PackageDeliverables = $true,
+
+    [bool] $GenerateHtmlSummary = $true,
 
     [ValidateRange(1, 168)]
     [int] $SignInQueryChunkHours = 24,
@@ -248,6 +252,64 @@ function Write-EvidenceCsvRow {
         ConvertTo-CsvField -Value $(if ($null -eq $property) { $null } else { $property.Value })
     }
     $Writer.WriteLine(($fields -join ','))
+}
+
+function Test-TrueLikeValue {
+    param([AllowNull()][object] $Value)
+    if ($null -eq $Value) { return $false }
+    return $Value -eq $true -or $Value.ToString().Equals('True', [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Write-ConsoleSummary {
+    param(
+        [Parameter(Mandatory)][object[]] $Report,
+        [Parameter(Mandatory)][object[]] $Summary
+    )
+
+    $totalUsers = $Report.Count
+    $tierRows = @($Summary | Where-Object { $_.RecordType -eq 'Tier distribution' })
+    $coverageRow = @($Summary | Where-Object { $_.RecordType -eq 'Evidence coverage' } | Select-Object -First 1)[0]
+
+    Write-Host ''
+    Write-Host '=== Entra authentication posture - tenant summary ===' -ForegroundColor Yellow
+    Write-Host ('{0,-38} {1,7} {2,10}' -f 'Registered strength tier', 'Users', '% of scope') -ForegroundColor Gray
+    Write-Host ('{0,-38} {1,7} {2,10}' -f ('-' * 38), ('-' * 7), ('-' * 10)) -ForegroundColor DarkGray
+    foreach ($tierRow in $tierRows) {
+        $count = [int]$tierRow.RegisteredUserCount
+        $percent = if ($totalUsers -gt 0) { $count / $totalUsers } else { 0 }
+        $color = switch ($tierRow.StrengthTier) {
+            'Phishing-resistant MFA' { 'Green' }
+            'Passwordless MFA' { 'Cyan' }
+            'Strong MFA (app, token, or TAP)' { 'Green' }
+            'Phone-based MFA' { 'Yellow' }
+            'Single-factor / SSPR only' { 'Yellow' }
+            'None / unclassified' { 'Red' }
+            default { 'White' }
+        }
+        Write-Host ('{0,-38} {1,7} {2,10:P1}' -f $tierRow.StrengthTier, $count, $percent) -ForegroundColor $color
+    }
+
+    $mfaCapable = @($Report | Where-Object { Test-TrueLikeValue -Value $_.IsMfaCapable }).Count
+    $passwordlessCapable = @($Report | Where-Object { Test-TrueLikeValue -Value $_.IsPasswordlessCapable }).Count
+    $phishingResistant = @($Report | Where-Object { $_.StrongestRegisteredTier -eq 'Phishing-resistant MFA' }).Count
+    $unclassified = @($Report | Where-Object { $_.StrongestRegisteredTier -eq 'None / unclassified' }).Count
+    $successfulSignIns = if ($null -ne $coverageRow) { [int]$coverageRow.SuccessfulInteractiveSignInCount } else { 0 }
+    $explicitMethodSignIns = if ($null -ne $coverageRow) { [int]$coverageRow.ExplicitMethodSignInCount } else { 0 }
+    $coverage = if ($successfulSignIns -gt 0) { $explicitMethodSignIns / $successfulSignIns } else { 0 }
+
+    Write-Host ''
+    Write-Host ('{0,-38}: {1,7}' -f 'Total users', $totalUsers) -ForegroundColor White
+    Write-Host ('{0,-38}: {1,7} ({2:P1})' -f 'MFA-capable', $mfaCapable, $(if ($totalUsers -gt 0) { $mfaCapable / $totalUsers } else { 0 })) -ForegroundColor Green
+    Write-Host ('{0,-38}: {1,7} ({2:P1})' -f 'Passwordless-capable', $passwordlessCapable, $(if ($totalUsers -gt 0) { $passwordlessCapable / $totalUsers } else { 0 })) -ForegroundColor Cyan
+    Write-Host ('{0,-38}: {1,7} ({2:P1})' -f 'Phishing-resistant registration', $phishingResistant, $(if ($totalUsers -gt 0) { $phishingResistant / $totalUsers } else { 0 })) -ForegroundColor Green
+    Write-Host ('{0,-38}: {1,7} ({2:P1})' -f 'No classified registration', $unclassified, $(if ($totalUsers -gt 0) { $unclassified / $totalUsers } else { 0 })) -ForegroundColor Red
+    if ($successfulSignIns -gt 0) {
+        $evidenceColor = if ($coverage -ge 0.75) { 'Green' } elseif ($coverage -ge 0.25) { 'Yellow' } else { 'Red' }
+        Write-Host ('{0,-38}: {1,7} of {2,7} ({3:P1})' -f 'Explicit-method evidence', $explicitMethodSignIns, $successfulSignIns, $coverage) -ForegroundColor $evidenceColor
+    }
+    else {
+        Write-Host ('{0,-38}: {1}' -f 'Explicit-method evidence', 'No successful interactive sign-ins') -ForegroundColor DarkYellow
+    }
 }
 
 if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
@@ -517,6 +579,8 @@ $summary.Add([pscustomobject][ordered]@{
     Notes                             = 'A missing explicit method does not mean that the user did not authenticate or did not use MFA.'
 })
 
+Write-ConsoleSummary -Report $report -Summary $summary.ToArray()
+
 $report | Sort-Object @{ Expression = 'IsAdmin'; Descending = $true }, @{ Expression = 'StrongestRegisteredScore'; Descending = $true }, UserPrincipalName |
     Export-Csv -LiteralPath $OutputPath -NoTypeInformation -Encoding UTF8
 $summary | Export-Csv -LiteralPath $summaryPath -NoTypeInformation -Encoding UTF8
@@ -534,6 +598,16 @@ Write-Host "Per-user posture report: $OutputPath"
 Write-Host "Summary report:          $summaryPath"
 if ($ExportEvidence -and $evidenceCount -gt 0) { Write-Host "Evidence report:         $evidencePath ($evidenceCount rows)" }
 elseif ($ExportEvidence) { Write-Host 'Evidence report:         no explicitly observed methods in the selected window' }
+
+if ($GenerateHtmlSummary) {
+    $htmlSummaryPath = Join-Path $PSScriptRoot 'New-EntraAuthPostureHtmlSummary.ps1'
+    if (-not (Test-Path -LiteralPath $htmlSummaryPath)) {
+        Write-Warning "HTML summary generation was requested, but the helper is missing: $htmlSummaryPath"
+    }
+    else {
+        & $htmlSummaryPath -PosturePath $OutputPath -SummaryPath $summaryPath -OutputDirectory $outputDirectory
+    }
+}
 
 if ($PackageDeliverables) {
     $packagerPath = Join-Path $PSScriptRoot 'New-EntraAuthPosturePackage.ps1'

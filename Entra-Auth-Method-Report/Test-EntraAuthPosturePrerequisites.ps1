@@ -117,10 +117,10 @@ else {
 
 if ($env:OS -eq 'Windows_NT') {
     if (Test-ExcelDesktop) {
-        Add-CheckResult -Results $results -Status Pass -Component 'Excel packaging (optional)' -Detail 'Desktop Excel and its COM automation interface are available.' -RecommendedAction 'Use -PackageDeliverables $true when running the report.'
+        Add-CheckResult -Results $results -Status Pass -Component 'Excel packaging (optional)' -Detail 'Desktop Excel and its COM automation interface are available.' -RecommendedAction 'The report will automatically create an XLSX workbook unless -PackageDeliverables $false is specified.'
     }
     else {
-        Add-CheckResult -Results $results -Status Warning -Component 'Excel packaging (optional)' -Detail 'Desktop Excel could not be started through COM.' -RecommendedAction 'CSV outputs remain supported. Install/repair desktop Excel to create XLSX and PDF deliverables.'
+        Add-CheckResult -Results $results -Status Warning -Component 'Excel packaging (optional)' -Detail 'Desktop Excel could not be started through COM.' -RecommendedAction 'CSV and HTML outputs remain supported. Install/repair desktop Excel to create the XLSX workbook.'
     }
 }
 else {
