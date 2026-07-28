@@ -83,13 +83,58 @@ package; many customers block it because it can be abused in phishing attacks.
 - Desktop Excel is optional and only required for the automatically attempted
   XLSX workbook; the executive HTML summary does not require it.
 
-### Entra access
+### Required Entra permissions
 
-The operator needs delegated `AuditLog.Read.All` and an appropriate Entra role,
-such as Reports Reader, Security Reader, Security Administrator, or Global
-Reader. Customer licensing and retention determine whether sign-in evidence is
+This package uses a standard **interactive delegated** Microsoft Graph sign-in.
+It does not create an app registration, use application permissions, use a
+certificate, or change tenant configuration. The sole Graph scope requested by
+the report and preflight is `AuditLog.Read.All`.
+
+| Requirement | Required value | Why it is needed |
+| --- | --- | --- |
+| Account type | Work or school account in the customer tenant | The two Graph APIs used by this package do not support personal Microsoft accounts. |
+| Microsoft Graph delegated permission | `AuditLog.Read.All` | Reads Entra authentication-method registration data and sign-in audit records. It is the least-privileged delegated permission documented for both endpoints. |
+| Consent | Tenant admin consent is required | `AuditLog.Read.All` requires administrator consent. Approve the interactive Graph PowerShell consent request through the customer's normal process before the operator runs the report. |
+| Entra role (recommended) | **Reports Reader** | Least-privilege built-in role that supports both the registration report and tenant sign-in-log reads. |
+
+`Security Reader`, `Security Administrator`, and `Global Reader` also support
+both endpoints. `Security Operator` is sufficient for the sign-in endpoint but
+not for the registration report, so it is not sufficient for this package.
+Use Global Reader only when the customer has a separate reason to assign it.
+
+For a custom Entra role, grant the equivalent read access to **both** endpoints
+and validate it with the preflight test. The report itself requests no
+`Directory.Read.All`, `Reports.Read.All`, or Conditional Access policy-read
+permission. It reads `conditionalAccessStatus` from sign-in records, but does
+not enumerate Conditional Access policies.
+
+The same `AuditLog.Read.All` scope is required for registration-only runs
+(`-IncludeSignInActivity $false`), because the registration source is also an
+audit-report API. This version supports interactive delegated operation only;
+application-only, managed-identity, and certificate-based execution are not
+implemented.
+
+### Operator handoff checklist
+
+1. Assign the operator **Reports Reader** in the customer tenant (or one of
+   the supported higher-privilege roles above).
+2. Have a tenant administrator approve delegated `AuditLog.Read.All` for the
+   interactive Microsoft Graph PowerShell sign-in, if it has not already been
+   approved under the customer's consent policy.
+3. Run the read-only validation before the engagement:
+
+   ```powershell
+   .\support\Test-EntraAuthPosturePrerequisites.ps1 -TestGraphAccess
+   ```
+
+4. Run the report from a session that satisfies the customer's Conditional
+   Access policies. Do not weaken Conditional Access or enable device code flow
+   for this package.
+
+Customer licensing and retention determine whether sign-in evidence is
 available. The registration report and sign-in APIs can also be restricted by
-customer tenant policy.
+customer tenant policy. The report does not write to Entra; its only tenant
+operations are read-only Graph requests.
 
 ## Run the report
 
@@ -261,6 +306,8 @@ automatic compliance failure.
 ## Microsoft references
 
 - [Microsoft Graph user registration details](https://learn.microsoft.com/en-us/graph/api/authenticationmethodsroot-list-userregistrationdetails?view=graph-rest-1.0)
+- [Microsoft Graph sign-in logs](https://learn.microsoft.com/en-us/graph/api/signin-list?view=graph-rest-1.0)
+- [Microsoft Graph permissions reference: AuditLog.Read.All](https://learn.microsoft.com/en-us/graph/permissions-reference#auditlogreadall)
 - [Microsoft Graph authentication detail (beta)](https://learn.microsoft.com/en-us/graph/api/resources/authenticationdetail?view=graph-rest-beta)
 - [Microsoft Graph PowerShell authentication](https://learn.microsoft.com/en-us/powershell/microsoftgraph/authentication-commands?view=graph-powershell-1.0)
 - [Microsoft Entra data retention](https://learn.microsoft.com/en-us/entra/identity/monitoring-health/reference-reports-data-retention)
