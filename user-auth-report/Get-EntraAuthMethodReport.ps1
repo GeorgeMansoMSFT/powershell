@@ -23,7 +23,14 @@
       * AuthMethodDetails_<timestamp>.csv  one row per registered method
       * AuthMethodReport_<timestamp>.html  self-contained, searchable viewer
       * AuthMethodErrors_<timestamp>.csv   only if some users could not be read
-      * RunSummary_<timestamp>.json        run statistics
+      * RunSummary_<timestamp>.json        run statistics and completeness check
+
+    HasMfaMethodRegistered / HasPhishingResistantMethodRegistered only mean
+    that such a method is registered. They do not evaluate authentication
+    methods policy or Conditional Access. When a user's methods could not be
+    read, the method columns are left empty (unknown) rather than False.
+    CSV cells that start with = + - @ or a tab/line break get a leading ' so
+    spreadsheet apps don't run them as formulas.
 
 .PARAMETER TenantId
     Tenant ID or domain. Optional for interactive sign-in, required for -ClientId.
@@ -42,7 +49,8 @@
 
 .PARAMETER AccessToken
     A pre-acquired Graph access token. It cannot be refreshed, so the run must
-    finish before it expires.
+    finish before it expires. Users whose reads fail with HTTP 401 after expiry
+    are listed in the errors CSV and the report is marked incomplete.
 
 .PARAMETER UserFilter
     Optional OData $filter that limits which users are read, for example:
@@ -78,6 +86,21 @@
     Optional ceiling on the read rate, to leave Graph capacity for other apps in
     the tenant. 0 (default) means no ceiling; the rate is then governed only by
     Graph's throttling responses.
+
+.PARAMETER GraphEndpoint
+    Microsoft Graph endpoint of the tenant's cloud. Only the official HTTPS
+    endpoints are accepted, and the matching Graph SDK environment is used to
+    sign in:
+      https://graph.microsoft.com             Global (default)
+      https://graph.microsoft.us              US Government L4 (GCC High)
+      https://dod-graph.microsoft.us          US Government L5 (DoD)
+    China (21Vianet) isn't offered because Microsoft Graph doesn't provide the
+    authentication methods API there.
+
+.PARAMETER TestGraphEndpoint
+    Test use only. Sends all requests to a mock Graph server on this machine
+    (a loopback URL such as http://localhost:18080) instead of Microsoft Graph.
+    Requires -AccessToken and cannot be combined with -GraphEndpoint.
 
 .PARAMETER IncludeContactDetails
     Include phone numbers and email addresses of phone/email methods in the
@@ -142,7 +165,19 @@ param(
     [ValidateSet('v1.0', 'beta')]
     [string]$ApiVersion = 'v1.0',
 
+    [ValidateSet('https://graph.microsoft.com', 'https://graph.microsoft.us', 'https://dod-graph.microsoft.us')]
     [string]$GraphEndpoint = 'https://graph.microsoft.com',
+
+    [Parameter(ParameterSetName = 'AccessToken')]
+    [ValidateScript({
+        $u = $null
+        if (-not [uri]::TryCreate([string]$_, [UriKind]::Absolute, [ref]$u) -or -not $u.IsLoopback -or
+            ($u.Scheme -ne 'http' -and $u.Scheme -ne 'https') -or $u.UserInfo -or $u.AbsolutePath -ne '/' -or $u.Query -or $u.Fragment) {
+            throw 'TestGraphEndpoint must be a loopback URL with no path, such as http://localhost:18080. It is for testing against a local mock only.'
+        }
+        $true
+    })]
+    [string]$TestGraphEndpoint,
 
     [switch]$IncludeContactDetails,
 
@@ -176,16 +211,43 @@ if ($PSVersionTable.PSEdition -ne 'Core') {
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 }
 
-$GraphEndpoint = $GraphEndpoint.TrimEnd('/')
-$BaseUri = "$GraphEndpoint/$ApiVersion"
+$GraphEnvironments = @{
+    'https://graph.microsoft.com'    = 'Global'
+    'https://graph.microsoft.us'     = 'USGov'
+    'https://dod-graph.microsoft.us' = 'USGovDoD'
+}
+$IsTestEndpoint = [bool]$TestGraphEndpoint
+if ($IsTestEndpoint) {
+    if ($PSBoundParameters.ContainsKey('GraphEndpoint')) { throw '-TestGraphEndpoint cannot be combined with -GraphEndpoint.' }
+    $GraphRoot = $TestGraphEndpoint.TrimEnd('/')
+    $MgEnvironment = $null
+    Write-Log "Using test endpoint $GraphRoot instead of Microsoft Graph. For testing against a local mock only." 'WARN'
+}
+else {
+    $GraphRoot = $GraphEndpoint.ToLowerInvariant()
+    $MgEnvironment = $GraphEnvironments[$GraphRoot]
+}
+# Every request (including @odata.nextLink pages) must go to this scheme, host and port.
+$GraphOrigin = ([uri]$GraphRoot).GetLeftPart([UriPartial]::Authority)
+$BaseUri = "$GraphRoot/$ApiVersion"
 $AuthMode = $PSCmdlet.ParameterSetName
 $TokenRefreshMinutes = 40
 
 $state = @{
     Token          = $null
     TokenAcquired  = [datetime]::MinValue
+    TokenVersion   = 0
     TenantId       = $TenantId
     Account        = $null
+}
+
+function Assert-GraphUri {
+    param([string]$Uri)
+    $u = $null
+    if (-not [uri]::TryCreate($Uri, [UriKind]::Absolute, [ref]$u) -or $u.UserInfo -or
+        -not [string]::Equals($u.GetLeftPart([UriPartial]::Authority), $GraphOrigin, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to send a request outside $GraphOrigin`: $Uri"
+    }
 }
 
 function Connect-GraphSdk {
@@ -202,17 +264,17 @@ function Connect-GraphSdk {
             $scopes = @('User.Read.All', 'UserAuthenticationMethod.Read.All')
             if ($CompareWithReport) { $scopes += 'AuditLog.Read.All' }
             if ($GroupId) { $scopes += 'GroupMember.Read.All' }
-            $p = @{ Scopes = $scopes; NoWelcome = $true }
+            $p = @{ Scopes = $scopes; NoWelcome = $true; Environment = $MgEnvironment }
             if ($TenantId) { $p.TenantId = $TenantId }
             Connect-MgGraph @p | Out-Null
         }
         'ManagedIdentity' {
-            $p = @{ Identity = $true; NoWelcome = $true }
+            $p = @{ Identity = $true; NoWelcome = $true; Environment = $MgEnvironment }
             if ($ManagedIdentityClientId) { $p.ClientId = $ManagedIdentityClientId }
             Connect-MgGraph @p | Out-Null
         }
         'AppCertificate' {
-            Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -CertificateThumbprint $CertificateThumbprint -NoWelcome | Out-Null
+            Connect-MgGraph -TenantId $TenantId -ClientId $ClientId -CertificateThumbprint $CertificateThumbprint -Environment $MgEnvironment -NoWelcome | Out-Null
         }
     }
     $ctx = Get-MgContext
@@ -221,17 +283,24 @@ function Connect-GraphSdk {
 }
 
 function Update-Token {
+    # Returns $true if a new token is in $state.Token. TokenVersion lets concurrent
+    # requests that failed with 401 tell whether someone else already refreshed.
     if ($AuthMode -eq 'AccessToken') {
         if (-not $state.Token) {
             $state.Token = [System.Net.NetworkCredential]::new('', $AccessToken).Password
-            $state.TokenAcquired = [datetime]::UtcNow
-            return $true
         }
-        return $false
+        elseif ($IsTestEndpoint) {
+            # Test-only: simulate a refresh so the mock can exercise the 401 path.
+            $state.Token = [System.Net.NetworkCredential]::new('', $AccessToken).Password + "-r$($state.TokenVersion)"
+        }
+        else { return $false }
+        $state.TokenAcquired = [datetime]::UtcNow
+        $state.TokenVersion++
+        return $true
     }
     # The Graph SDK owns token acquisition and refresh; borrow its current token
     # so batches can be sent concurrently with a plain HttpClient.
-    $resp = Invoke-MgGraphRequest -Method GET -Uri "$GraphEndpoint/v1.0/users?`$top=1&`$select=id" -OutputType HttpResponseMessage
+    $resp = Invoke-MgGraphRequest -Method GET -Uri "$GraphRoot/v1.0/users?`$top=1&`$select=id" -OutputType HttpResponseMessage
     try {
         $token = $resp.RequestMessage.Headers.Authorization.Parameter
     }
@@ -239,16 +308,30 @@ function Update-Token {
     if (-not $token) { throw 'Could not obtain an access token from the Microsoft Graph SDK session.' }
     $state.Token = $token
     $state.TokenAcquired = [datetime]::UtcNow
+    $state.TokenVersion++
     return $true
 }
 
 $handler = New-Object System.Net.Http.HttpClientHandler
 $handler.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+# Never follow redirects: the bearer token must only be sent to $GraphOrigin.
+$handler.AllowAutoRedirect = $false
 $client = New-Object System.Net.Http.HttpClient($handler)
 $client.Timeout = [TimeSpan]::FromSeconds(180)
 
+function Get-NextLink {
+    param($Page)
+    $next = Get-Prop $Page '@odata.nextLink'
+    if ($next) {
+        try { Assert-GraphUri $next }
+        catch { throw "Graph returned a next-page link outside $GraphOrigin; stopping. $next" }
+    }
+    return $next
+}
+
 function New-GraphRequest {
     param([string]$Method, [string]$Uri, [string]$JsonBody)
+    Assert-GraphUri $Uri
     $req = New-Object System.Net.Http.HttpRequestMessage((New-Object System.Net.Http.HttpMethod($Method)), $Uri)
     $req.Headers.Authorization = New-Object System.Net.Http.Headers.AuthenticationHeaderValue('Bearer', $state.Token)
     $req.Headers.Add('client-request-id', [guid]::NewGuid().ToString())
@@ -294,6 +377,7 @@ function Invoke-GraphGet {
             }
             $code = [int]$resp.StatusCode
             if ($code -eq 200) { return ($text | ConvertFrom-Json) }
+            if ($code -ge 300 -and $code -lt 400) { throw "GET $Uri returned a redirect (HTTP $code). Redirects are not followed." }
             if ($code -eq 401 -and $attempt -lt $MaxRetries -and (Update-Token)) { continue }
             if ($code -eq 429 -or $code -ge 500) {
                 $wait = Get-RetryAfterSeconds -Response $resp -Attempt $attempt
@@ -411,6 +495,11 @@ $HtmlTemplate = @'
   .pager { display:flex; align-items:center; gap:8px; margin:10px 0; color:var(--muted); }
   .tablewrap { max-height:70vh; overflow:auto; border:1px solid var(--line); border-radius:8px; }
   .note { font-size:12px; color:var(--muted); margin-top:8px; }
+  .banner { border-radius:8px; padding:10px 14px; margin-bottom:16px; border:1px solid; }
+  .banner.ok { background:#dff6dd; border-color:#9fd89f; color:#0b5a08; }
+  .banner.incomplete { background:#fde7e9; border-color:#eeacb2; color:#8a0b17; }
+  .banner.info { background:#fff4ce; border-color:#f2d68a; color:#5c4100; }
+  .banner ul { margin:4px 0 0 18px; padding:0; }
 </style>
 </head>
 <body>
@@ -419,6 +508,7 @@ $HtmlTemplate = @'
   <div class="sub" id="subtitle"></div>
 </header>
 <main>
+  <div id="status"></div>
   <div class="cards" id="cards"></div>
   <div class="panel">
     <h2>Registered methods <span class="muted" style="font-weight:400">(current filter; click a method to filter by it)</span></h2>
@@ -436,7 +526,7 @@ $HtmlTemplate = @'
       <button id="reset">Reset</button>
       <button class="primary" id="export">Export filtered CSV</button>
     </div>
-    <div class="note">Source: Microsoft Graph <code>/users/{id}/authentication/methods</code>, read for every user at the time shown above. "MFA capable" and "phishing-resistant" are derived from registered methods only and don't take policy (for example, disabled methods) into account.</div>
+    <div class="note">Source: Microsoft Graph <code>/users/{id}/authentication/methods</code>, read for every user at the time shown above. "MFA method registered" and "Phishing-resistant method registered" only mean such a method is registered; they don't evaluate authentication methods policy or Conditional Access, so they don't show whether the user can actually use it.</div>
   </div>
   <div class="pager" id="pagerTop"></div>
   <div class="tablewrap"><table id="tbl"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
@@ -445,7 +535,7 @@ $HtmlTemplate = @'
 <script>
 const META = /*__META__*/;
 const ROWS = [/*__ROWS__*/];
-const C = { upn:0, name:1, enabled:2, type:3, keys:4, pkModels:5, pkNewest:6, status:7, disc:8, native:9, err:10, devices:11 };
+const C = { upn:0, name:1, enabled:2, type:3, keys:4, pkModels:5, pkNewest:6, status:7, disc:8, native:9, err:10, devices:11, count:12 };
 const LABELS = {}; META.catalog.forEach(c => LABELS[c[0]] = c[1]);
 const PR = new Set(META.prKeys), MFA = new Set(META.mfaKeys);
 const WEAK = new Set(["mobilePhone","alternateMobilePhone","officePhone","email"]);
@@ -459,8 +549,15 @@ const pct = (n, d) => d ? (100 * n / d).toFixed(1) + "%" : "-";
 
 $("subtitle").textContent = "Tenant " + META.tenant + " | generated " + META.generated + " | " + fmt(ROWS.length) + " users | collection took " + Math.round(META.durationSeconds / 60) + " min" + (META.scope && META.scope !== "All users" ? " | scope: " + META.scope : "");
 if (!META.compare) $("discWrap").style.display = "none";
+(function renderStatus() {
+  let h;
+  if (META.complete) h = '<div class="banner ok"><b>Complete:</b> every user in scope was enumerated and their methods were read.</div>';
+  else h = '<div class="banner incomplete"><b>Incomplete report.</b> Don\'t treat users missing from this report as having no methods.<ul>' + META.issues.map(i => '<li>' + esc(i) + '</li>').join("") + '</ul></div>';
+  if (META.nativeStatus === "Failed") h += '<div class="banner info"><b>Native report comparison failed</b>; discrepancy columns are not shown. ' + esc(META.nativeError) + '</div>';
+  $("status").innerHTML = h;
+})();
 
-const special = [["__mfa","MFA capable (any)"],["__pr","Phishing-resistant (any)"],["__nomfa","No MFA method"]];
+const special = [["__mfa","MFA method registered (any)"],["__pr","Phishing-resistant method registered (any)"],["__nomfa","No MFA method registered"]];
 function fillSelect(sel) {
   let h = '<option value="">(any)</option>';
   special.forEach(s => h += '<option value="' + s[0] + '">' + esc(s[1]) + '</option>');
@@ -482,7 +579,7 @@ const cols = [
   { t:"Display name", v:r => r[C.name] },
   { t:"Enabled", v:r => r[C.enabled] },
   { t:"Type", v:r => r[C.type] },
-  { t:"Registered methods", v:r => r[C.keys].filter(k => k !== "password").length },
+  { t:"Registered methods", v:r => r[C.count] },
   { t:"Passkeys", v:r => r[C.pkModels] },
   { t:"Newest passkey", v:r => r[C.pkNewest] },
 ];
@@ -522,10 +619,10 @@ function renderCards() {
   const c = (label, value, sub) => '<div class="card"><div class="label">' + esc(label) + '</div><div class="value">' + value + '</div><div class="pct">' + (sub || "&nbsp;") + '</div></div>';
   let h = c("Users in view", fmt(view.length), fmt(ROWS.length) + " in report");
   const mfa = ok.filter(r => r.mfa).length, pr = ok.filter(r => r.pr).length, pk = ok.filter(r => r.set.has("passkey")).length;
-  h += c("MFA capable", fmt(mfa), pct(mfa, n));
-  h += c("Phishing-resistant", fmt(pr), pct(pr, n));
+  h += c("MFA method registered", fmt(mfa), pct(mfa, n));
+  h += c("Phishing-resistant method registered", fmt(pr), pct(pr, n));
   h += c("Passkey registered", fmt(pk), pct(pk, n));
-  h += c("No MFA method", fmt(n - mfa), pct(n - mfa, n));
+  h += c("No MFA method registered", fmt(n - mfa), pct(n - mfa, n));
   const errs = view.length - n;
   if (errs) h += c("Read errors", '<span class="bad">' + fmt(errs) + '</span>', "retry or check permissions");
   if (META.compare) { const d = view.filter(r => r[C.disc]).length; h += c("Differs from native report", '<span class="warn">' + fmt(d) + '</span>', pct(d, n)); }
@@ -570,12 +667,18 @@ function apply(resetPage) {
 }
 
 function exportCsv() {
-  const q = s => '"' + String(s == null ? "" : s).replace(/"/g, '""') + '"';
-  const head = ["UserPrincipalName","DisplayName","AccountEnabled","UserType","MethodsRegistered","IsMfaCapable","IsPhishingResistantCapable","PasskeyModels","PasskeyNewestCreated","ReadStatus"];
+  // Same formula guard as the PowerShell CSVs: a leading ' stops spreadsheets running the cell.
+  const q = s => { s = String(s == null ? "" : s); if (/^[=+\-@\t\r\n]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+  const head = ["UserPrincipalName","DisplayName","AccountEnabled","UserType","ReadStatus","MethodsRegistered","MethodCount","HasMfaMethodRegistered","HasPhishingResistantMethodRegistered","PasskeyModels","PasskeyNewestCreated","ErrorDetail"];
   if (META.compare) head.push("NativeMethodsRegistered", "Discrepancy");
   const lines = [head.join(",")];
+  const tf = b => b ? "True" : "False";
   view.forEach(r => {
-    const v = [r[C.upn], r[C.name], r[C.enabled] ? "True" : "False", r[C.type], r[C.keys].filter(k => !HIDDEN_CHIPS.has(k)).map(k => LABELS[k] || k).join("; "), r.mfa, r.pr, r[C.pkModels], r[C.pkNewest], r[C.status]];
+    const ok = r[C.status] === "OK";
+    // Unknown (empty) when the methods could not be read, matching the PowerShell CSV.
+    const v = [r[C.upn], r[C.name], tf(r[C.enabled]), r[C.type], r[C.status],
+      ok ? r[C.keys].filter(k => k !== "passkeyAuthenticator" && k !== "passkeyOther").map(k => LABELS[k] || k).join("; ") : "",
+      ok ? r[C.count] : "", ok ? tf(r.mfa) : "", ok ? tf(r.pr) : "", r[C.pkModels], r[C.pkNewest], r[C.err]];
     if (META.compare) v.push(r[C.native], r[C.disc]);
     lines.push(v.map(q).join(","));
   });
@@ -620,7 +723,7 @@ try {
     $advanced = [bool]($UserFilter -or $GroupId)
     if ($advanced) { $query += '&$count=true' }
 
-    $sources = New-Object System.Collections.Generic.List[string]
+    $sources = New-Object System.Collections.Generic.List[object]
     $scopeParts = New-Object System.Collections.Generic.List[string]
     if ($GroupId) {
         $groupNames = New-Object System.Collections.Generic.List[string]
@@ -628,11 +731,11 @@ try {
             try { $grp = Invoke-GraphGet -Uri "$BaseUri/groups/$g`?`$select=id,displayName" }
             catch { throw "Could not read group $g. Check the object ID and that the account has GroupMember.Read.All. $($_.Exception.Message)" }
             $groupNames.Add(("'{0}' ({1})" -f $grp.displayName, $g))
-            $sources.Add("$BaseUri/groups/$g/transitiveMembers/microsoft.graph.user?$query")
+            $sources.Add(@{ Name = "group $g"; Uri = "$BaseUri/groups/$g/transitiveMembers/microsoft.graph.user?$query"; Expected = $null; Received = 0 })
         }
         $scopeParts.Add('Members of ' + ($groupNames -join ', '))
     }
-    else { $sources.Add("$BaseUri/users?$query") }
+    else { $sources.Add(@{ Name = 'users'; Uri = "$BaseUri/users?$query"; Expected = $null; Received = 0 }) }
     if ($UserFilter) { $scopeParts.Add("Filter: $UserFilter") }
     if ($MaxUsers -gt 0) { $scopeParts.Add("First $MaxUsers users") }
     $scope = if ($scopeParts.Count) { $scopeParts -join '; ' } else { 'All users' }
@@ -640,20 +743,37 @@ try {
 
     $users = New-Object System.Collections.Generic.List[object]
     $seenUsers = New-Object 'System.Collections.Generic.HashSet[string]'
+    $completenessIssues = New-Object System.Collections.Generic.List[string]
+    $truncated = $false
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    foreach ($uri in $sources) {
-        while ($uri) {
+    for ($si = 0; $si -lt $sources.Count -and -not $truncated; $si++) {
+        $src = $sources[$si]
+        $uri = $src.Uri
+        while ($uri -and -not $truncated) {
             $page = Invoke-GraphGet -Uri $uri -AdvancedQuery:$advanced
+            # @odata.count is only returned for advanced queries ($count=true).
+            if ($uri -eq $src.Uri) { $src.Expected = Get-Prop $page '@odata.count' }
             foreach ($u in $page.value) {
+                $src.Received++
                 # Users can be in several of the groups; read each user once.
-                if ($seenUsers.Add([string]$u.id)) { $users.Add($u) }
-                if ($MaxUsers -gt 0 -and $users.Count -ge $MaxUsers) { break }
+                if ($seenUsers.Contains([string]$u.id)) { continue }
+                if ($MaxUsers -gt 0 -and $users.Count -ge $MaxUsers) { $truncated = $true; break }
+                [void]$seenUsers.Add([string]$u.id)
+                $users.Add($u)
             }
-            if ($MaxUsers -gt 0 -and $users.Count -ge $MaxUsers) { break }
-            $uri = Get-Prop $page '@odata.nextLink'
+            if ($truncated) { break }
+            $uri = Get-NextLink $page
+            if ($MaxUsers -gt 0 -and $users.Count -ge $MaxUsers -and ($uri -or $si -lt $sources.Count - 1)) { $truncated = $true }
             if ($users.Count % 9990 -lt 999) { Write-Log "Enumerated $($users.Count) users..." }
         }
-        if ($MaxUsers -gt 0 -and $users.Count -ge $MaxUsers) { break }
+    }
+    if ($truncated) { $completenessIssues.Add("Stopped at -MaxUsers $MaxUsers; more users matched the scope.") }
+    else {
+        foreach ($src in $sources) {
+            if ($null -ne $src.Expected -and [int]$src.Expected -ne $src.Received) {
+                $completenessIssues.Add("Graph reported $($src.Expected) users for $($src.Name) but returned $($src.Received).")
+            }
+        }
     }
     $stats.Users = $users.Count
     Write-Log ("Enumerated {0} users in {1:n0} s." -f $users.Count, $sw.Elapsed.TotalSeconds)
@@ -712,6 +832,14 @@ try {
         $ctl.CleanStreak = 0
     }
 
+    $refreshToken = {
+        param([int]$SentWithVersion)
+        # Batches in flight with the same expired token all report 401; refresh only once.
+        if ($SentWithVersion -lt $state.TokenVersion) { return $true }
+        if (Update-Token) { Write-Log 'Access token refreshed after HTTP 401.'; return $true }
+        return $false
+    }
+
     $total = $users.Count
     $sw.Restart()
     $lastProgress = [datetime]::UtcNow
@@ -740,7 +868,7 @@ try {
             }
             [void]$sb.Append(']}')
             $req = New-GraphRequest -Method POST -Uri $batchUri -JsonBody $sb.ToString()
-            $inFlight.Add([pscustomobject]@{ Task = $client.SendAsync($req); Ids = $ids; Request = $req })
+            $inFlight.Add([pscustomobject]@{ Task = $client.SendAsync($req); Ids = $ids; Request = $req; TokenVersion = $state.TokenVersion })
             $stats.Batches++
             $dispatchedItems += $ids.Count
         }
@@ -771,12 +899,13 @@ try {
             $resp.Dispose(); $f.Request.Dispose()
 
             if ($code -eq 401) {
-                if (Update-Token) {
+                if (& $refreshToken $f.TokenVersion) {
                     foreach ($id in $f.Ids) { & $addRetry $id 0 'HTTP 401' }
                     continue
                 }
                 throw 'Graph returned 401 Unauthorized and the access token cannot be refreshed. The token has probably expired.'
             }
+            if ($code -ge 300 -and $code -lt 400) { throw "`$batch request returned a redirect (HTTP $code). Redirects are not followed." }
             if ($code -eq 429 -or $code -ge 500) {
                 if ($code -eq 429) { $stats.ThrottledBatches++ } else { $stats.ServerErrors++ }
                 & $registerThrottle $batchRetryAfter
@@ -793,7 +922,11 @@ try {
                 if ($s -eq 200) {
                     $results[$id] = @($r.body.value)
                 }
-                elseif ($s -eq 429 -or $s -ge 500 -or $s -eq 401) {
+                elseif ($s -eq 401) {
+                    if (& $refreshToken $f.TokenVersion) { & $addRetry $id 0 'HTTP 401' }
+                    else { $failures[$id] = 'HTTP 401: the access token expired and could not be refreshed' }
+                }
+                elseif ($s -eq 429 -or $s -ge 500) {
                     $ra = 0
                     $h = Get-Prop $r 'headers'
                     if ($h) { [void][int]::TryParse([string](Get-Prop $h 'Retry-After'), [ref]$ra) }
@@ -841,6 +974,8 @@ try {
 
     #region Optional: native registration details report ---------------------
     $native = $null
+    $nativeStatus = 'NotRequested'
+    $nativeError = $null
     if ($CompareWithReport) {
         Write-Log 'Downloading the native User registration details report for comparison...'
         $native = New-Object 'System.Collections.Generic.Dictionary[string,object]'
@@ -850,13 +985,16 @@ try {
             while ($uri) {
                 $page = Invoke-GraphGet -Uri $uri
                 foreach ($r in $page.value) { $native[[string]$r.id] = $r }
-                $uri = Get-Prop $page '@odata.nextLink'
+                $uri = Get-NextLink $page
             }
+            $nativeStatus = 'Completed'
             Write-Log ("Native report returned {0} users in {1:n0} s." -f $native.Count, $sw.Elapsed.TotalSeconds)
         }
         catch {
             # Don't lose the collected data because the comparison failed (e.g. AuditLog.Read.All missing).
-            Write-Log "Could not download the native report; continuing without comparison. $($_.Exception.Message)" 'WARN'
+            $nativeStatus = 'Failed'
+            $nativeError = $_.Exception.Message
+            Write-Log "Could not download the native report; continuing without comparison. $nativeError" 'WARN'
             $native = $null
         }
     }
@@ -874,6 +1012,15 @@ try {
     $Js = [System.Web.HttpUtility]
     # ISO-8601 UTC strings compare correctly as strings.
     $recentCutoff = [datetime]::UtcNow.AddHours(-48).ToString('yyyy-MM-ddTHH:mm:ss')
+    # Spreadsheet apps run cells starting with these characters as formulas; such values get a leading '.
+    $FormulaRx = [regex]'^[=+\-@\t\r\n]'
+    $GuardRowCols = 'UserPrincipalName', 'DisplayName', 'UserType', 'MethodsRegistered', 'PasskeyModels', 'AuthenticatorDevices', 'ErrorDetail', 'NativeMethodsRegistered', 'Discrepancy'
+    $GuardDetailCols = 'UserPrincipalName', 'Method', 'MethodType', 'DisplayName', 'Detail', 'AaGuid', 'MethodId'
+    # When the methods could not be read these are unknown, so they are left empty rather than False/0.
+    $UnknownWhenFailedCols = 'MethodsRegistered', 'MethodCount', 'HasMfaMethodRegistered', 'HasPhishingResistantMethodRegistered',
+        'HasPasskey', 'HasPasskeyInAuthenticator', 'HasPasskeyOther', 'PasskeyCount', 'PasskeyModels', 'PasskeyNewestCreated',
+        'HasMicrosoftAuthenticator', 'AuthenticatorDevices', 'HasWindowsHelloForBusiness', 'HasPlatformCredential', 'HasPhone',
+        'HasSoftwareOath', 'HasHardwareOath', 'HasTemporaryAccessPass', 'HasEmail'
 
     # Hot loop (runs once per user): StrictMode is relaxed so optional Graph properties can be read
     # directly (missing -> $null) instead of through Get-Prop/Format-Date, which cost ~0.3 ms per call.
@@ -960,14 +1107,19 @@ try {
                 $d.CreatedDateTime = if ($created -is [datetime]) { $created.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { [string]$created }
                 $lu = $m.lastUsedDateTime
                 $d.LastUsedDateTime = if ($lu -is [datetime]) { $lu.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { [string]$lu }
-                if ($type -ne 'password') { $detailRows.Add([pscustomobject]$d) }
+                if ($type -ne 'password') {
+                    foreach ($c in $GuardDetailCols) { $v = $d[$c]; if ($v -and $FormulaRx.IsMatch($v)) { $d[$c] = "'" + $v } }
+                    $detailRows.Add([pscustomobject]$d)
+                }
             }
         }
         else {
             $status = 'Error'
             $statusDetail = if ($failures.ContainsKey($id)) { $failures[$id] } else { 'Not read' }
             $summary.Failed++
-            $errorRows.Add([pscustomobject]@{ UserPrincipalName = $upn; UserId = $id; Error = $statusDetail })
+            $e = [ordered]@{ UserPrincipalName = $upn; UserId = $id; Error = $statusDetail }
+            foreach ($c in 'UserPrincipalName', 'Error') { $v = $e[$c]; if ($v -and $FormulaRx.IsMatch($v)) { $e[$c] = "'" + $v } }
+            $errorRows.Add([pscustomobject]$e)
         }
 
         foreach ($k in $keys) { $methodCounts[$k]++ }
@@ -994,36 +1146,39 @@ try {
         foreach ($o in $other) { $methodList.Add($o) }
         $uc = $u.createdDateTime
         $userCreated = if ($uc -is [datetime]) { $uc.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { [string]$uc }
+        $pkModelsStr = $passkeyModels -join '; '
+        $authDevStr = $authenticatorDevices -join '; '
         $row = [ordered]@{
-            UserPrincipalName          = $upn
-            DisplayName                = [string]$u.displayName
-            UserId                     = $id
-            AccountEnabled             = $enabled
-            UserType                   = [string]$u.userType
-            OnPremisesSyncEnabled      = [bool]$u.onPremisesSyncEnabled
-            UserCreatedDateTime        = $userCreated
-            ReadStatus                 = $status
-            MethodsRegistered          = ($methodList -join '; ')
-            MethodCount                = $methodCount
-            IsMfaCapable               = $isMfa
-            IsPhishingResistantCapable = $isPr
-            HasPasskey                 = $hasPasskey
-            HasPasskeyInAuthenticator  = $keys.Contains('passkeyAuthenticator')
-            HasPasskeyOther            = $keys.Contains('passkeyOther')
-            PasskeyCount               = $passkeyModels.Count
-            PasskeyModels              = ($passkeyModels -join '; ')
-            PasskeyNewestCreated       = $passkeyNewest
-            HasMicrosoftAuthenticator  = $keys.Contains('microsoftAuthenticator')
-            AuthenticatorDevices       = ($authenticatorDevices -join '; ')
-            HasWindowsHelloForBusiness = $keys.Contains('windowsHelloForBusiness')
-            HasPlatformCredential      = $keys.Contains('platformCredential')
-            HasPhone                   = ($keys.Contains('mobilePhone') -or $keys.Contains('alternateMobilePhone') -or $keys.Contains('officePhone'))
-            HasSoftwareOath            = $keys.Contains('softwareOath')
-            HasHardwareOath            = $keys.Contains('hardwareOath')
-            HasTemporaryAccessPass     = $keys.Contains('temporaryAccessPass')
-            HasEmail                   = $keys.Contains('email')
-            ErrorDetail                = $statusDetail
+            UserPrincipalName                    = $upn
+            DisplayName                          = [string]$u.displayName
+            UserId                               = $id
+            AccountEnabled                       = $enabled
+            UserType                             = [string]$u.userType
+            OnPremisesSyncEnabled                = [bool]$u.onPremisesSyncEnabled
+            UserCreatedDateTime                  = $userCreated
+            ReadStatus                           = $status
+            MethodsRegistered                    = ($methodList -join '; ')
+            MethodCount                          = $methodCount
+            HasMfaMethodRegistered               = $isMfa
+            HasPhishingResistantMethodRegistered = $isPr
+            HasPasskey                           = $hasPasskey
+            HasPasskeyInAuthenticator            = $keys.Contains('passkeyAuthenticator')
+            HasPasskeyOther                      = $keys.Contains('passkeyOther')
+            PasskeyCount                         = $passkeyModels.Count
+            PasskeyModels                        = $pkModelsStr
+            PasskeyNewestCreated                 = $passkeyNewest
+            HasMicrosoftAuthenticator            = $keys.Contains('microsoftAuthenticator')
+            AuthenticatorDevices                 = $authDevStr
+            HasWindowsHelloForBusiness           = $keys.Contains('windowsHelloForBusiness')
+            HasPlatformCredential                = $keys.Contains('platformCredential')
+            HasPhone                             = ($keys.Contains('mobilePhone') -or $keys.Contains('alternateMobilePhone') -or $keys.Contains('officePhone'))
+            HasSoftwareOath                      = $keys.Contains('softwareOath')
+            HasHardwareOath                      = $keys.Contains('hardwareOath')
+            HasTemporaryAccessPass               = $keys.Contains('temporaryAccessPass')
+            HasEmail                             = $keys.Contains('email')
+            ErrorDetail                          = $statusDetail
         }
+        if ($status -ne 'OK') { foreach ($c in $UnknownWhenFailedCols) { $row[$c] = $null } }
 
         $discrepancy = ''
         $nativeMethods = ''
@@ -1044,7 +1199,7 @@ try {
                 }
             }
             elseif ($enabled -and $status -eq 'OK') {
-                # The native report does not include disabled users, by design.
+                # Microsoft documents that userRegistrationDetails doesn't work for disabled users.
                 $discrepancy = 'Missing from native report'
                 if ($userCreated -and $userCreated -gt $recentCutoff) { $discrepancy += ' (user created in last 48h; report may lag)' }
             }
@@ -1054,6 +1209,7 @@ try {
             $row.Discrepancy = $discrepancy
             if ($discrepancy) { $summary.Discrepancies++ }
         }
+        foreach ($c in $GuardRowCols) { $v = $row[$c]; if ($v -and $FormulaRx.IsMatch($v)) { $row[$c] = "'" + $v } }
         $rows.Add([pscustomobject]$row)
 
         if (-not $NoHtml) {
@@ -1070,18 +1226,28 @@ try {
                 $(if ($enabled) { '1' } else { '0' })
                 '"' + $Js::JavaScriptStringEncode([string]$u.userType) + '"'
                 '[' + $keyJson + ']'
-                '"' + $Js::JavaScriptStringEncode($row.PasskeyModels) + '"'
+                '"' + $Js::JavaScriptStringEncode($pkModelsStr) + '"'
                 '"' + $Js::JavaScriptStringEncode($passkeyNewest) + '"'
                 '"' + $status + '"'
                 '"' + $Js::JavaScriptStringEncode($discrepancy) + '"'
                 '"' + $Js::JavaScriptStringEncode($nativeMethods) + '"'
                 '"' + $Js::JavaScriptStringEncode($statusDetail) + '"'
-                '"' + $Js::JavaScriptStringEncode($row.AuthenticatorDevices) + '"'
+                '"' + $Js::JavaScriptStringEncode($authDevStr) + '"'
+                $(if ($status -eq 'OK') { [string]$methodCount } else { '-1' })
             )
             [void]$htmlRows.Append('[').Append(($fields -join ',')).Append(']')
         }
     }
     Set-StrictMode -Version 2.0
+    #endregion
+
+    #region Completeness -------------------------------------------------------
+    if ($failures.Count) { $completenessIssues.Add("Authentication methods could not be read for $($failures.Count) user(s); see the errors CSV.") }
+    $unaccounted = $users.Count - $results.Count - $failures.Count
+    if ($unaccounted -ne 0) { $completenessIssues.Add("$unaccounted user(s) have neither a result nor a recorded failure.") }
+    $reportComplete = $completenessIssues.Count -eq 0
+    if ($reportComplete) { Write-Log 'Completeness check passed: every user in scope was enumerated and read.' }
+    else { foreach ($issue in $completenessIssues) { Write-Log "Report incomplete: $issue" 'WARN' } }
     #endregion
 
     #region Write files -------------------------------------------------------
@@ -1099,7 +1265,7 @@ try {
     if (-not $NoHtml) {
         $htmlPath = Join-Path $OutputPath "AuthMethodReport_$stamp.html"
         $catalogJson = ($MethodCatalog.Keys | ForEach-Object { '["{0}","{1}",{2}]' -f $_, $Js::JavaScriptStringEncode($MethodCatalog[$_]), $methodCounts[$_] }) -join ','
-        $meta = '{{"generated":"{0}","tenant":"{1}","compare":{2},"mfaKeys":[{3}],"prKeys":[{4}],"catalog":[{5}],"durationSeconds":{6},"scope":"{7}"}}' -f
+        $meta = '{{"generated":"{0}","tenant":"{1}","compare":{2},"mfaKeys":[{3}],"prKeys":[{4}],"catalog":[{5}],"durationSeconds":{6},"scope":"{7}","complete":{8},"issues":[{9}],"nativeStatus":"{10}","nativeError":"{11}"}}' -f
             ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss') + ' UTC'),
             $Js::JavaScriptStringEncode([string]$state.TenantId),
             $(if ($native) { 'true' } else { 'false' }),
@@ -1107,7 +1273,11 @@ try {
             (($PhishResistantKeys | ForEach-Object { '"' + $_ + '"' }) -join ','),
             $catalogJson,
             [int]((Get-Date) - $runStart).TotalSeconds,
-            $Js::JavaScriptStringEncode($scope)
+            $Js::JavaScriptStringEncode($scope),
+            $(if ($reportComplete) { 'true' } else { 'false' }),
+            (($completenessIssues | ForEach-Object { '"' + $Js::JavaScriptStringEncode($_) + '"' }) -join ','),
+            $nativeStatus,
+            $Js::JavaScriptStringEncode([string]$nativeError)
         $html = $HtmlTemplate.Replace('/*__META__*/', $meta).Replace('/*__ROWS__*/', $htmlRows.ToString())
         [System.IO.File]::WriteAllText($htmlPath, $html, (New-Object System.Text.UTF8Encoding($false)))
     }
@@ -1115,7 +1285,12 @@ try {
     $runSummary = [pscustomobject]@{
         TenantId                = $state.TenantId
         AuthMode                = $AuthMode
+        GraphEndpoint           = $GraphRoot
         Scope                   = $scope
+        ReportComplete          = $reportComplete
+        CompletenessIssues      = [string[]]@($completenessIssues)
+        NativeComparisonStatus  = $nativeStatus
+        NativeComparisonError   = $nativeError
         StartedUtc              = $runStart.ToUniversalTime().ToString('o')
         DurationSeconds         = [int]((Get-Date) - $runStart).TotalSeconds
         MethodReadSeconds       = [int]$collectSeconds
@@ -1129,8 +1304,9 @@ try {
         TransportErrors         = $stats.TransportErrors
         Retries                 = $stats.Retries
         PeakBatchesInFlight     = $stats.MaxConcurrencyReached
-        MfaCapableUsers         = $summary.Mfa
-        PhishingResistantUsers  = $summary.PhishRes
+        TokenRefreshes          = [Math]::Max(0, $state.TokenVersion - 1)
+        UsersWithMfaMethodRegistered               = $summary.Mfa
+        UsersWithPhishingResistantMethodRegistered = $summary.PhishRes
         PasskeyUsers            = $summary.Passkey
         NativeReportUsers       = $(if ($native) { $native.Count } else { $null })
         NativeReportUsersInScope = $(if ($native) { @($users | Where-Object { $native.ContainsKey([string]$_.id) }).Count } else { $null })
@@ -1142,7 +1318,7 @@ try {
     }
     $summaryPath = Join-Path $OutputPath "RunSummary_$stamp.json"
     $runSummary | ConvertTo-Json | Set-Content -LiteralPath $summaryPath -Encoding UTF8
-    Write-Log ("Done in {0:n0} s. Users: {1}, MFA capable: {2}, passkey: {3}, failed: {4}{5}" -f
+    Write-Log ("Done in {0:n0} s. Users: {1}, with an MFA method registered: {2}, passkey: {3}, failed: {4}{5}" -f
         $runSummary.DurationSeconds, $summary.Total, $summary.Mfa, $summary.Passkey, $summary.Failed,
         $(if ($native) { ", discrepancies vs native report: $($summary.Discrepancies)" } else { '' }))
     Write-Log "Output folder: $OutputPath"
